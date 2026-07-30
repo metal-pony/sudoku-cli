@@ -1,7 +1,9 @@
 package io.github.metal_pony.sudoku.drivers;
 
+import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.lang.management.ManagementFactory;
 import java.lang.management.ThreadMXBean;
 import java.util.ArrayList;
@@ -29,35 +31,26 @@ import io.github.metal_pony.sudoku.PuzzleEntry;
 import io.github.metal_pony.sudoku.Sudoku;
 import io.github.metal_pony.sudoku.SudokuMask;
 import io.github.metal_pony.sudoku.SudokuSieve;
-import io.github.metal_pony.sudoku.drivers.gui.SudokuGuiDemo;
+import io.github.metal_pony.sudoku.util.ArraysUtil;
+import io.github.metal_pony.sudoku.util.Counting;
 
-/**
- * Sudoku command-line interface. Commands:
- *
- * `play`
- * Open the Sudoku GUI with a random puzzle.
- * Optional args:
- *    `--clues XX` Number of clues for the puzzle. Default: 27.
- *
- * `generateConfigs`
- * Generate a number of sudoku configurations.
- * Optional args:
- *    `--amount XX` [Default: 1] Number of configurations to generate.
- *    `--normalize` [Default: omitted] Flag to "normalize" the output, swapping values
- *        around such that the first row reads the digits 1-9 consecutively.
- *
- * `generatePuzzles`
- * Generate a number of sudoku puzzles. Optionally multi-threaded.
- * Optional args:
- *    `--amount XX` [Default: 1] Number of puzzles to generate.
- *    `--clues XX` [Default: 27] Number of clues for the puzzles.
- *    `--threads XX` [Default: 1] Number of threads used for generation.
- *        More is not necessarily better.
- *
- * `solve --puzzle 1.3.456.2...(etc)`
- * Search for and output solutions to the given sudoku board.
- */
 public class Main {
+  private static final String DEFAULT_COMMAND = "generateSolutions";
+
+  private static final List<String> lines = new ArrayList<>();
+  private static final ArgsMap args = new ArgsMap();
+  private static final int MAX_THREADS = Runtime.getRuntime().availableProcessors();
+
+  private static void out(Object x) { System.out.println(x); }
+  private static void outf(String format, Object...args) { System.out.printf(format, args); }
+  private static void verboseOut(Object x) {
+    if (args.isVerbose()) System.out.println(x);
+  }
+  private static void verboseOutf(String format, Object...args) {
+    if (Main.args.isVerbose()) System.out.printf(format, args);
+  }
+  private static long timeMs() { return System.currentTimeMillis(); }
+
   private static void sleep(long timeMs) {
     try {
       Thread.sleep(timeMs);
@@ -66,37 +59,66 @@ public class Main {
     }
   }
 
-  private static final int MAX_THREADS = Runtime.getRuntime().availableProcessors();
-
-  static final String RESOURCES_DIR = "resources";
-  public static InputStream resourceStream(String name) {
-    return Main.class.getResourceAsStream(String.format("/%s/%s", RESOURCES_DIR, name));
-  }
-
-  public static List<String> readAllLines(InputStream inStream) {
-    List<String> lines = new ArrayList<>();
-
-    Scanner scanner = new Scanner(inStream);
-    while (scanner.hasNextLine()) {
-      String line = scanner.nextLine().trim();
-      if (!line.isEmpty()) {
-        lines.add(line);
+  private static void readAllLines(InputStream inStream, List<String> lines) {
+    try (
+      BufferedReader reader = new BufferedReader(new InputStreamReader(inStream));
+    ) {
+      String line;
+      while ((line = reader.readLine()) != null) {
+        lines.add(line.trim());
       }
+    } catch (IOException e) {
+      e.printStackTrace();
     }
-    scanner.close();
-
-    return lines;
   }
 
-  public static final String DEFAULT_COMMAND = "generateConfigs";
+  private static void repeatThreadedAndBlock(Runnable runnable, int times, int threads) {
+    ThreadPoolExecutor pool = new ThreadPoolExecutor(
+      threads, threads,
+      1L, TimeUnit.SECONDS,
+      new LinkedBlockingQueue<>()
+    );
+    pool.prestartAllCoreThreads();
+    for (int n = 0; n < times; n++) pool.submit(runnable);
+    pool.shutdown();
+    try {
+      pool.awaitTermination(1L, TimeUnit.DAYS);
+    } catch (InterruptedException e) {
+      e.printStackTrace();
+    } finally {
+      pool.close();
+      // out("thread pool closed");
+    }
+  }
+
+  private static void runBatchAndBlock(List<Runnable> batch, int threads) {
+    ThreadPoolExecutor pool = new ThreadPoolExecutor(
+      threads, threads,
+      1L, TimeUnit.SECONDS,
+      new LinkedBlockingQueue<>()
+    );
+    pool.prestartAllCoreThreads();
+    for (Runnable work : batch) pool.submit(work);
+    pool.shutdown();
+    try {
+      pool.awaitTermination(1L, TimeUnit.DAYS);
+    } catch (InterruptedException e) {
+      e.printStackTrace();
+    } finally {
+      pool.close();
+      // out("thread pool closed");
+    }
+  }
 
   public static final class ArgsMap extends HashMap<String,String> {
     private static final String VERBOSE_ARG1 = "verbose";
     private static final String VERBOSE_ARG2 = "v";
+    private static final Set<String> ALGOS = new HashSet<>() {{
+      add("dc2"); add("dc3"); add("dc4");
+      add("fp2"); add("fp3"); add("fp4");
+    }};
 
-    public static ArgsMap parseCommandLineArgs(String[] args, int firstArgIndex) {
-      ArgsMap map = new ArgsMap();
-
+    public void parseCommandLineArgs(String[] args, int firstArgIndex) {
       if (args != null && args.length > firstArgIndex) {
         String lastArgKey = null;
         for (int i = firstArgIndex; i < args.length; i++) {
@@ -114,33 +136,98 @@ public class Main {
             if (!lastArgKey.matches("[a-zA-Z]+")) {
               throw new IllegalArgumentException("Invalid argument format: " + String.join(" ", args));
             }
-            map.put(lastArgKey, null);
+            put(lastArgKey, null);
           } else {
-            if (lastArgKey == null || map.get(lastArgKey) != null) {
+            if (lastArgKey == null || get(lastArgKey) != null) {
               throw new IllegalArgumentException("Invalid argument format: " + String.join(" ", args));
             }
-            map.put(lastArgKey, arg);
+            put(lastArgKey, arg);
           }
         }
       }
 
       // Check and cache whether verbose mode is set.
-      map.isVerbose = (
-        map.containsKey(VERBOSE_ARG1) ||
-        map.containsKey(VERBOSE_ARG2)
+      isVerbose = (
+        containsKey(VERBOSE_ARG1) ||
+        containsKey(VERBOSE_ARG2)
       );
 
-      return map;
+      threads = parseThreadsArgOrThrow(MAX_THREADS);
+      normalize = containsKey("normalize");
+      amount = containsKey("amount") ? Integer.parseInt(get("amount")) : -1;
+      clues = containsKey("clues") ? Integer.parseInt(get("clues")) : -1;
+      level = containsKey("level") ? Integer.parseInt(get("level")) : -1;
+
+      algo = get("algo");
+      if (algo != null) {
+        algo = algo.replaceAll("\\W", "");
+        if (algo.length() > 16) {
+          throw new IllegalArgumentException("Malformed --algo");
+        }
+        if (!ALGOS.contains(algo)) {
+          throw new IllegalArgumentException(String.format("Algorithm '%s' not recognized.", algo));
+        }
+      }
     }
 
     private boolean isVerbose = false;
+    private boolean normalize = false;
+    private int threads = -1;
+    private int amount = -1;
+    private int clues = -1;
+    private int level = -1;
+    private String algo = null;
+
     public boolean isVerbose() { return isVerbose; }
+    public boolean normalize() { return normalize; }
+    public int threads() { return threads; }
+    public int amount() { return amount; }
+    public int amountOrDefault(int defaultAmount) { return amount == -1 ? defaultAmount : amount; }
+    public int clues() { return clues; }
+    public int cluesOrDefault(int defaultClues) { return clues == -1 ? defaultClues : clues; }
+    public int level() { return level; }
+    public int levelOrDefault(int defaultLevel) { return level == -1 ? defaultLevel : level; }
+    public String algo() { return algo; }
+    public String algoOrDefault(String defaultAlgo) { return (algo == null) ? defaultAlgo : algo; }
+
+    private int parseThreadsArgOrThrow(int maxThreads) {
+      int threads = 1;
+
+      if (containsKey("threads")) {
+        String threadsStr = get("threads");
+        if (threadsStr == null) {
+          threads = maxThreads;
+        } else {
+          if ("max".equalsIgnoreCase(threadsStr)) {
+            threads = maxThreads;
+          } else {
+            try {
+              threads = Integer.parseInt(threadsStr);
+            } catch (NumberFormatException ex) {
+              System.err.println("ERROR: Bad argument '--threads'.");
+              System.exit(1);
+            }
+          }
+        }
+      }
+
+      if (threads < 1) {
+        System.err.println("ERROR: Bad argument '--threads'.");
+        System.exit(1);
+      } else if (threads > maxThreads) {
+        System.err.printf(
+          "WARNING: --threads '%d' specified, but max specified was %d -- Consider using less threads.",
+          threads,
+          maxThreads
+        );
+      }
+
+      return threads;
+    }
   }
 
-  private static final Map<String, Consumer<ArgsMap>> COMMANDS = new HashMap<>() {{
-    // --clues %d
-    put("play", Main::play);
-    // --amount %d --normalize
+  private static final Map<String, Runnable> COMMANDS = new HashMap<>() {{
+    put("help", Main::help);
     put("generateConfigs", Main::generateConfigs);
     put("benchConfigs", Main::benchConfigGeneration);
     // --amount %d --clues %d --threads %d

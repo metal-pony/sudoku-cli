@@ -26,11 +26,6 @@ import io.github.metal_pony.sudoku.drivers.Main.ArgsMap;
  * As of writing, the uber set generated is well over 2 million, and reduces down to 416.
  */
 public class GenerateInitialBands {
-    // Used while testing
-    private static void main2(String[] args) {
-        generateInitialBands(ArgsMap.parseCommandLineArgs(args, 0));
-    }
-
     static class Node2 {
         Sudoku sudoku;
         int cellIndex = -1;
@@ -55,14 +50,15 @@ public class GenerateInitialBands {
         }
     }
 
-    public static void generateInitialBands(ArgsMap argsMap) {
+    public static void generateInitialBands() {
+        ArgsMap args = Main.args;
         ThreadMXBean bean = ManagementFactory.getThreadMXBean();
         long startTimeNs = bean.getCurrentThreadCpuTime();
 
         Set<String> fullBandSet = new HashSet<>();
         final int N = Sudoku.DIGITS * 3;
 
-        if (argsMap.isVerbose()) {
+        if (args.isVerbose()) {
             System.out.println("-- Generating large initial bands set... --");
         }
 
@@ -78,7 +74,7 @@ public class GenerateInitialBands {
                     if (!hasEmptyInBand) {
                         String bandStr = top.sudoku.toString().substring(0, N);
                         if (fullBandSet.add(bandStr)) {
-                            if (argsMap.isVerbose()) System.out.println(bandStr);
+                            if (args.isVerbose()) System.out.println(bandStr);
                         }
                     }
                     stack.pop();
@@ -88,7 +84,7 @@ public class GenerateInitialBands {
             }
         });
 
-        if (argsMap.isVerbose()) {
+        if (args.isVerbose()) {
             System.out.printf(
                 " -- Done (%s ms). Generated %d initial bands. --\n",
                 TimeUnit.NANOSECONDS.toMillis(timeNs),
@@ -97,14 +93,14 @@ public class GenerateInitialBands {
             System.out.println("-- Reducing bands... --");
         }
 
-        Set<String> reducedBandSet = reduceFullBandSet(fullBandSet, argsMap.isVerbose());
+        Set<String> reducedBandSet = reduceFullBandSet(fullBandSet, args.isVerbose());
 
-        if (argsMap.isVerbose()) {
+        if (args.isVerbose()) {
             System.out.printf("-- REDUCED BANDS (%d) --\n", reducedBandSet.size());
         }
         reducedBandSet.forEach(System.out::println);
         long endTimeNs = bean.getCurrentThreadCpuTime();
-        if (argsMap.isVerbose()) {
+        if (args.isVerbose()) {
             System.out.printf("-- DONE. Total time: %d ms. --\n", TimeUnit.NANOSECONDS.toMillis(endTimeNs - startTimeNs));
         }
     }
