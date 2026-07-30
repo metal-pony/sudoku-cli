@@ -3,4 +3,4 @@
 # Generates Sudoku configurations.
 # Run this from the base project directory.
 
-./mvnw package -f pom-exe.xml && java -jar target/sudoku-1.jar "$@"
+./mvnw package -f pom.xml && java -jar target/sudoku-1.jar "$@"

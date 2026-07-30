@@ -3,4 +3,4 @@
 # Builds a native executable for the current system with GraalVM.
 # Ensure that the appropriate GraalVM jdk is installed and the default.
 
-./mvnw clean package -f pom-exe-graal.xml "$@"
+./mvnw clean package -f pom-graal.xml "$@"
