@@ -1,4 +1,4 @@
-package io.github.metal_pony.sudoku.drivers.gui;
+package io.github.metal_pony.sudoku_cli.drivers.gui;
 
 import java.awt.BorderLayout;
 import java.awt.Color;

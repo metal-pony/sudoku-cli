@@ -1,4 +1,4 @@
-package io.github.metal_pony.sudoku.drivers;
+package io.github.metal_pony.sudoku_cli.drivers;
 
 import java.lang.management.ManagementFactory;
 import java.lang.management.ThreadMXBean;
@@ -12,7 +12,6 @@ import java.util.Stack;
 import java.util.concurrent.TimeUnit;
 
 import io.github.metal_pony.sudoku.Sudoku;
-import io.github.metal_pony.sudoku.drivers.Main.ArgsMap;
 
 /**
  * Generates a set of normalized initial bands (the top 3 rows of a sudoku board).
@@ -51,7 +50,7 @@ public class GenerateInitialBands {
     }
 
     public static void generateInitialBands() {
-        ArgsMap args = Main.args;
+        Main.ArgsMap args = Main.args;
         ThreadMXBean bean = ManagementFactory.getThreadMXBean();
         long startTimeNs = bean.getCurrentThreadCpuTime();
 

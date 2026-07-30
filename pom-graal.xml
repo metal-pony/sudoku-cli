@@ -40,12 +40,6 @@
     </dependency>
 
     <dependency>
-      <groupId>com.google.code.gson</groupId>
-      <artifactId>gson</artifactId>
-      <version>2.13.2</version>
-    </dependency>
-
-    <dependency>
       <groupId>io.github.metal_pony</groupId>
       <artifactId>sudoku</artifactId>
       <version>1.1.0-SNAPSHOT</version>
@@ -133,16 +127,5 @@
         </configuration>
       </plugin>
     </plugins>
-
-    <resources>
-      <resource>
-        <directory>src/main/java/resources</directory>
-        <targetPath>resources</targetPath>
-        <includes>
-          <include>17-puzzle-records.json</include>
-          <include>sudoku-17.txt</include>
-        </includes>
-      </resource>
-    </resources>
   </build>
 </project>
