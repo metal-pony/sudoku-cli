@@ -243,7 +243,6 @@ public class Main {
     put("verify", Main::verify);
     put("solve", Main::solve);
     put("scramble", Main::scramble);
-    put("csv", Main::csv);
     put("sieve", Main::createSieve);
     put("fingerprint", Main::fingerprint);
     put("fp", Main::fingerprint);
@@ -924,40 +923,6 @@ public class Main {
 
       out(grid.scramble().toString());
     }
-  }
-
-  // Output all sudoku17 data and fields (specified in 'format') as csv
-  private static void csv() {
-    int threads = args.threads();
-    String format = args.get("format");
-
-    // Input can be either
-    // (1) puzzles,
-    // (2) solutions, or
-    // (3) csv containing (1) or (2) as first element
-
-    ThreadPoolExecutor pool = new ThreadPoolExecutor(
-      threads, threads,
-      1L, TimeUnit.MINUTES,
-      new LinkedBlockingQueue<>()
-    );
-
-    long start = System.currentTimeMillis();
-
-    for (PuzzleEntry s17Entry : PuzzleEntry.allSudoku17()) {
-      pool.submit(() -> {
-        System.out.println(s17Entry.toFormatted(format));
-      });
-    }
-
-    pool.shutdown();
-    try {
-      pool.awaitTermination(1L, TimeUnit.DAYS);
-    } catch (InterruptedException e) {
-      e.printStackTrace();
-    }
-    long end = System.currentTimeMillis();
-    verboseOutf("Done in %d ms.", end - start);
   }
 
   private static int inBounds(int value, int min, int max) {
