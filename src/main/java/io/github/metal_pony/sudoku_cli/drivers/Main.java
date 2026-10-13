@@ -256,7 +256,6 @@ public class Main {
     put("adhoc", Main::adhoc);
     put("adhoc2", Main::adhoc2);
     put("wip1", Main::wip_1);
-    put("wip2", Main::wip_2);
     put("wip3", Main::wip3);
   }};
 
@@ -1274,89 +1273,6 @@ public class Main {
       lines.add("");
     }
     return lines;
-  }
-
-  private static void wip_2() {
-    List<PuzzleEntry> all17 = PuzzleEntry.allSudoku17();
-    final int len = all17.size();
-    String delim = "    ";
-    final int sudokuPerLine = 4;
-
-    // String[][] sudokuStrs = new String[sudokuPerLine][];
-    // for (int j = 0; j < sudokuPerLine; j++) {
-    //   sudokuStrs[j] = new String[11];
-    // }
-
-    // for (int i = 0; i < len; i+=sudokuPerLine) {
-    //   for (int j = 0; j < sudokuPerLine; j++) {
-    //     Arrays.fill(sudokuStrs[j], "");
-    //     if (i + j < len) {
-    //       sudokuStrs[j] = all17.get(i + j).puzzle().toMedString().split("\n");
-    //     }
-    //   }
-
-    //   int lines = sudokuStrs[0].length;
-    //   for (int line = 0; line < lines; line++) {
-    //     String[] sudokuLines = new String[sudokuPerLine];
-    //     for (int j = 0; j < sudokuPerLine; j++) {
-    //       sudokuLines[j] = sudokuStrs[j][line];
-    //     }
-
-    //     System.out.println(String.join(delim, sudokuLines).trim());
-    //   }
-    //   System.out.println("\n");
-    // }
-
-    Map<Integer,List<Sudoku>> emptyRowsPuzzles = new HashMap<>();
-    Map<Integer,List<Sudoku>> emptyColsPuzzles = new HashMap<>();
-    Map<Integer,List<Sudoku>> emptyRegionsPuzzles = new HashMap<>();
-    Map<Integer,List<Sudoku>> emptyAreasPuzzles = new HashMap<>();
-    for (int i = 0; i < 9; i++) {
-      emptyRowsPuzzles.put(i, new ArrayList<>());
-      emptyColsPuzzles.put(i, new ArrayList<>());
-      emptyRegionsPuzzles.put(i, new ArrayList<>());
-      emptyAreasPuzzles.put(i, new ArrayList<>());
-    }
-    for (PuzzleEntry entry : all17) {
-      Sudoku p = entry.puzzle();
-
-      int emptyRows = p.numEmptyRows();
-      int emptyCols = p.numEmptyCols();
-      int emptyRegions = p.numEmptyRegions();
-      int emptyAreas = emptyRows + emptyCols + emptyRegions;
-
-      emptyRowsPuzzles.get(emptyRows).add(p);
-      emptyColsPuzzles.get(emptyCols).add(p);
-      emptyRegionsPuzzles.get(emptyRegions).add(p);
-      emptyAreasPuzzles.get(emptyAreas).add(p);
-    }
-
-    System.out.println("EMPTY ROW PUZZLES:");
-    for (int i = 0; i < 4; i++) System.out.printf("[%d]: %d\n", i, emptyRowsPuzzles.get(i).size());
-    System.out.println("EMPTY COL PUZZLES:");
-    for (int i = 0; i < 4; i++) System.out.printf("[%d]: %d\n", i, emptyColsPuzzles.get(i).size());
-    System.out.println("EMPTY REGION PUZZLES:");
-    for (int i = 0; i < 4; i++) System.out.printf("[%d]: %d\n", i, emptyRegionsPuzzles.get(i).size());
-    System.out.println("EMPTY AREA PUZZLES:");
-    for (int i = 0; i < 9; i++) System.out.printf("[%d]: %d\n", i, emptyAreasPuzzles.get(i).size());
-
-    System.out.println("EMPTY ROWS (3) PUZZLES:");
-    // emptyRowsPuzzles.get(3).forEach(p -> System.out.println(p.toMedString()));
-    sudokuLines(emptyRowsPuzzles.get(3), sudokuPerLine, delim).forEach(System.out::println);
-
-    System.out.println("\nEMPTY COLS (3) PUZZLES:");
-    sudokuLines(emptyColsPuzzles.get(3), sudokuPerLine, delim).forEach(System.out::println);
-    // emptyColsPuzzles.get(3).forEach(p -> System.out.println(p.toMedString()));
-
-    System.out.println("\nEMPTY ROWS (3) PUZZLES:");
-    sudokuLines(emptyRegionsPuzzles.get(3), sudokuPerLine, delim).forEach(System.out::println);
-    // emptyRegionsPuzzles.get(3).forEach(p -> System.out.println(p.toMedString()));
-
-    for (int a = 3; a < 9; a++) {
-      System.out.printf("\nEMPTY AREAS (%d) PUZZLES:\n", a);
-      sudokuLines(emptyAreasPuzzles.get(a), sudokuPerLine, delim).forEach(System.out::println);
-      // emptyAreasPuzzles.get(a).forEach(p -> System.out.println(p.toMedString()));
-    }
   }
 
   // Finds all 17 cell palindrome masks that satisfy the prime sieve,
