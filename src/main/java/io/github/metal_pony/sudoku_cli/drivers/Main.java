@@ -258,7 +258,6 @@ public class Main {
     put("wip1", Main::wip_1);
     put("wip2", Main::wip_2);
     put("wip3", Main::wip3);
-    // put("check17", Main::check17);
   }};
 
   public static void main(String[] args) throws IOException, ClassNotFoundException {
@@ -2290,48 +2289,5 @@ public class Main {
       amount,
       TimeUnit.NANOSECONDS.toMillis(time)
     );
-  }
-
-  // Checks all sudoku 17 puzzles and reports the number of unique solutions
-  // and unique fp2.
-  private static void check17() {
-    long startTime = System.currentTimeMillis();
-    System.out.print("Reading in 17-clue puzzles...");
-    PuzzleEntry[] sudoku17 = PuzzleEntry.all17();
-    System.out.println(" ✅.");
-
-    // Use maximum of 8 processors while keeping 2 available for the system to keep doing its thing.
-    int numThreads = Runtime.getRuntime().availableProcessors();
-    ThreadPoolExecutor pool = new ThreadPoolExecutor(
-      numThreads, numThreads,
-      1L, TimeUnit.SECONDS,
-      new LinkedBlockingQueue<>()
-    );
-    pool.prestartAllCoreThreads();
-
-    System.out.println("Solving all puzzles" + (numThreads > 1 ? " ["+numThreads+" threads]." : "."));
-    Set<String> solutions = Collections.synchronizedSet(new HashSet<>());
-    Set<String> fp2s = Collections.synchronizedSet(new HashSet<>());
-    for (int i = 0; i < sudoku17.length; i++) {
-      final int j = i;
-      pool.submit(() -> {
-        PuzzleEntry entry = sudoku17[j];
-        solutions.add(entry.solutionStr());
-        fp2s.add(entry.fp2());
-      });
-    }
-
-    pool.shutdown();
-    try {
-      pool.awaitTermination(10L, TimeUnit.MINUTES);
-    } catch (InterruptedException e) {
-      e.printStackTrace();
-      pool.shutdownNow();
-    }
-
-    long endTime = System.currentTimeMillis();
-    System.out.println("Finished in " + (endTime - startTime) + " ms.");
-    System.out.printf("Found %d unique solutions.\n", solutions.size());
-    System.out.printf("Found %d unique fp2s.\n", fp2s.size());
   }
 }
