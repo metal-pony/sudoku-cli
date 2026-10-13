@@ -31,7 +31,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
-import io.github.metal_pony.sudoku.PuzzleEntry;
 import io.github.metal_pony.sudoku.SieveSearcher;
 import io.github.metal_pony.sudoku.Sudoku;
 import io.github.metal_pony.sudoku.SudokuMask;
