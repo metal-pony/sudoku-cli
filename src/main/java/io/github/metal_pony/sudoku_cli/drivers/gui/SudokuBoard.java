@@ -20,6 +20,7 @@ import java.awt.event.MouseWheelListener;
 import javax.swing.JComponent;
 import javax.swing.JPanel;
 
+import static io.github.metal_pony.sudoku.Constants.*;
 import io.github.metal_pony.sudoku.Sudoku;
 
 public class SudokuBoard extends JPanel implements ComponentListener {
@@ -156,7 +157,7 @@ public class SudokuBoard extends JPanel implements ComponentListener {
 	public SudokuBoard(Sudoku sudoku) {
 		this.fillRatio = 0.8f;
 		this.sudoku = sudoku;
-		this.cells = new SudokuCell[Sudoku.SPACES];
+		this.cells = new SudokuCell[SPACES];
 
 		font = new Font("Consolas", Font.PLAIN, 24);
 		SudokuCell.font = font.deriveFont(24f);
@@ -229,7 +230,7 @@ public class SudokuBoard extends JPanel implements ComponentListener {
 		addComponentListener(this);
 
 		this.setLayout(null);
-		for (int i = 0; i < Sudoku.SPACES; i++) {
+		for (int i = 0; i < SPACES; i++) {
 			cells[i] = new SudokuCell(sudoku.getDigit(i));
 			add(cells[i]);
 		}
@@ -318,7 +319,7 @@ public class SudokuBoard extends JPanel implements ComponentListener {
 		SudokuCell.font = font.deriveFont((float) cellSize);
 
 		//POSITION ALL CELLS
-		for (int i = 0; i < Sudoku.SPACES; i++) {
+		for (int i = 0; i < SPACES; i++) {
 			int r = i / 9;
 			int c = i % 9;
 			cells[i].setBounds(

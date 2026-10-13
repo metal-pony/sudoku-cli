@@ -31,7 +31,12 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
+import com.google.gson.FormattingStyle;
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+
 import io.github.metal_pony.sudoku.SieveSearcher;
+import static io.github.metal_pony.sudoku.Constants.*;
 import io.github.metal_pony.sudoku.Sudoku;
 import io.github.metal_pony.sudoku.SudokuMask;
 import io.github.metal_pony.sudoku.SudokuSieve;
@@ -239,7 +244,7 @@ public class Main {
     put("generatePaliMasks", Main::generatePaliMasks);
     put("paliSearch", Main::paliSearch);
 
-    put("verify", Main::verify);
+    put("check", Main::check);
     put("solve", Main::solve);
     put("scramble", Main::scramble);
     put("sieve", Main::createSieve);
@@ -750,7 +755,48 @@ public class Main {
     );
   }
 
-  private static void verify() {
+  /**
+   * Checks grid(s) string validity, then outputs various stats as JSON including
+   * grid, isValid, numClues, isSolved, solutionsFlag,
+   * difficulty rating (NYI, only if solutionsFlag == 1),
+   * solve path (NYI, only if solutionsFlag == 1),
+   * solutions (auto if solutionsFlag == 1, otherwise option),
+   * solutionCount (option),
+   * fingerprint (option, only if solutionsFlag == 1),
+   * sieve (option).
+   *
+   * If grid is malformed, sets { error: "malformed" }.
+   *
+   * ERROR if no grid(s) given.
+   *
+   * Example
+   * > check --grid '.....8..98...16.7.94......8.92..186.46..........56.....3...958.28.3.4..6.1....42.' \
+   *   --fp 'dc2,dc3'
+   *   {
+   *     "grid": ".....8..98...16.7.94......8.92..186.46..........56.....3...958.28.3.4..6.1....42.",
+   *     "isValid": true,
+   *     "numClues": 30,
+   *     "isSolved": false,
+   *     "solutionsFlag": 1,
+   *     "solutions": [
+   *       "721438659853916274946275318392741865465892731178563942634129587287354196519687423"
+   *     ],
+   *   }
+   */
+  private static void check() {
+    final boolean count = args.containsKey("count");
+    final boolean all = args.containsKey("all");
+    final int threads = args.threads();
+    final boolean dc2 = args.containsKey("dc2");
+    final boolean dc3 = args.containsKey("dc3");
+    final boolean dc4 = args.containsKey("dc4");
+    final boolean fp2 = args.containsKey("fp2");
+    final boolean fp3 = args.containsKey("fp3");
+    final boolean fp4 = args.containsKey("fp4");
+    boolean useSieve = args.containsKey("sieve");
+    final String sieveAlgo = args.get("sieve");
+    if (sieveAlgo == null) useSieve = false;
+
     if (args.containsKey("grid")) {
       lines.add(args.get("grid"));
     }
@@ -767,32 +813,89 @@ public class Main {
     };
 
     for (String gridStr : lines) {
+      Map<String,Object> result = new HashMap<>();
       Sudoku grid = null;
-      try {
-        if (!Sudoku.isValidStr(gridStr)) {
-          if (gridStr.length() > Sudoku.SPACES) {
-            gridStr = gridStr.substring(0, Sudoku.SPACES) + "...(etc)";
-          }
-          outf("%s -> invalid grid (malformed)", gridStr);
-          continue;
-        }
+
+      if (Sudoku.isValidStr(gridStr)) {
         grid = new Sudoku(gridStr);
-      } catch (Exception ex) {
-        System.err.println("ERROR: Specified grid is malformed.");
-        System.exit(1);
+        result.put("grid", grid.toString());
+        result.put("isValid", grid.isValid());
+        result.put("isSolved", grid.isSolved());
+        result.put("numClues", grid.numClues());
+        int flag = grid.solutionsFlag();
+        result.put("solutionsFlag", flag);
+        List<Sudoku> solutions = new ArrayList<>();
+        long solutionCount = 0L;
+        if (flag == 1 || all) {
+          grid.getAllSolutions(solutions);
+          result.put("solutions", solutions);
+          solutionCount = solutions.size();
+        } else if (count) {
+          solutionCount = grid.countSolutionsAsync(threads);
+        }
+        if (count) {
+          result.put("solutionCount", solutionCount);
+        }
+        if (flag == 1) {
+          if (dc2) result.put("fingerprint_dc2", grid.dc2());
+          if (dc3) result.put("fingerprint_dc3", grid.dc3());
+          if (dc4) result.put("fingerprint_dc4", grid.dc4());
+          if (fp2) result.put("fingerprint_fp2", grid.fp2());
+          if (fp3) result.put("fingerprint_fp3", grid.fp3());
+          if (fp4) result.put("fingerprint_fp4", grid.fp4());
+          if (useSieve) {
+            SudokuSieve sieve = new SudokuSieve(solutions.getFirst());
+            List<SudokuMask> seedMasks = new ArrayList<>();
+            switch (sieveAlgo) {
+              case "dc2":
+                seedMasks.addAll(sieve.digitCombos(2));
+                break;
+              case "dc3":
+                seedMasks.addAll(sieve.digitCombos(3));
+                break;
+              case "dc4":
+                seedMasks.addAll(sieve.digitCombos(4));
+                break;
+              case "fp2":
+                seedMasks.addAll(sieve.fullPrintCombos(2));
+                break;
+              case "fp3":
+                seedMasks.addAll(sieve.fullPrintCombos(3));
+                break;
+              case "fp4":
+                seedMasks.addAll(sieve.fullPrintCombos(4));
+                break;
+              default:
+                throw new RuntimeException(
+                  String.format("unrecognized sieve seeding algo %s", sieveAlgo)
+                );
+            }
+            List<Runnable> seedWork = new ArrayList<>();
+            seedMasks.forEach(mask -> {
+              seedWork.add(() -> {
+                sieve.searchForUAs(mask);
+              });
+            });
+            verboseOutf("Seeding sieve... ");
+            long start = timeMs();
+            runBatchAndBlock(seedWork, threads);
+            long end = timeMs();
+            verboseOutf("Done (%d ms).\n", (end - start));
+            result.put("sieve", sieve.items(new ArrayList<>()));
+          }
+        }
+      } else {
+        if (gridStr.length() > SPACES) {
+          gridStr = gridStr.substring(0, SPACES) + "...(etc)";
+        }
+        result.put("grid", gridStr);
+        result.put("error", "malformed");
       }
 
-      int flag = grid.solutionsFlag();
-      if (args.isVerbose()) {
-        outf(
-          "%s -> solutionsFlag: %d (%s)\n",
-          grid.toString(),
-          flag,
-          flagStrs[flag]
-        );
-      } else {
-        outf("%s, %s\n", grid.toString(), Boolean.toString(flag == 1));
-      }
+      GsonBuilder gsonBuilder = new GsonBuilder();
+      gsonBuilder.setFormattingStyle(FormattingStyle.PRETTY);
+      Gson gson = gsonBuilder.create();
+      out(gson.toJson(result));
     }
   }
 
@@ -1164,19 +1267,19 @@ public class Main {
     }
 
     int prev2 = 0;
-    for (int ci = 0; ci < Sudoku.SPACES / 2; ci++) {
+    for (int ci = 0; ci < SPACES / 2; ci++) {
       prev1 = test.getDigit(ci);
       if (prev1 > 0) {
-        prev2 = test.getDigit(Sudoku.SPACES - ci - 1);
+        prev2 = test.getDigit(SPACES - ci - 1);
         test.clearCell(ci);
-        test.clearCell(Sudoku.SPACES - ci - 1);
+        test.clearCell(SPACES - ci - 1);
         flag = test.solutionsFlag();
         if (flag == 1) {
           // verboseOutf("❌ %s\n", test.toString());
           return false;
         }
         test.setDigit(ci, prev1);
-        test.setDigit(Sudoku.SPACES - ci - 1, prev2);
+        test.setDigit(SPACES - ci - 1, prev2);
       }
     }
 
@@ -1187,7 +1290,7 @@ public class Main {
   // (Sudoku.searchForPuzzlesAsync) Searches for puzzles with the mask shape
   private static void wip_1() {
     final int clues = args.cluesOrDefault(24);
-    if (clues < Sudoku.MIN_CLUES || clues > Sudoku.SPACES) {
+    if (clues < MIN_CLUES || clues > SPACES) {
       throw new IllegalArgumentException("clues out of range");
     }
 
@@ -1549,14 +1652,20 @@ public class Main {
   }
 
   private static long[] bench_all17Solve() {
-    long startSysTime = System.currentTimeMillis();
-    long cpuTime = timeCpuExecution(() -> {
-      for (PuzzleEntry entry : PuzzleEntry.allSudoku17()) {
-        entry.puzzle().solution();
-      }
-    });
-    long endSysTime = System.currentTimeMillis();
-    return new long[]{endSysTime - startSysTime, cpuTime};
+    try {
+      List<Sudoku> sudoku17s = io.github.metal_pony.sudoku.Main.sudoku17();
+      long startSysTime = System.currentTimeMillis();
+      long cpuTime = timeCpuExecution(() -> {
+        sudoku17s.forEach(puzzle -> {
+          puzzle.solution();
+        });
+      });
+      long endSysTime = System.currentTimeMillis();
+      return new long[]{endSysTime - startSysTime, cpuTime};
+    } catch (IOException e) {
+      e.printStackTrace();
+      return new long[]{0L, 0L};
+    }
   }
 
   private static long[] bench_configGen(int amount) {
@@ -1602,26 +1711,21 @@ public class Main {
     // ------------------------------------------------------
     // Counts how many sudoku17 are solvable via simple reduction.
     // ------------------------------------------------------
-    List<PuzzleEntry> all17 = PuzzleEntry.allSudoku17();
-    AtomicInteger count = new AtomicInteger();
-    all17.forEach(entry -> {
-      Sudoku p = new Sudoku(entry.puzzle());
-      p.resetCandidatesAndValidity();
-      p.reduce();
-      if (p.isSolved()) {
-        System.out.println(entry.puzzle().toString());
-        count.incrementAndGet();
+    int count = 0;
+    try {
+      for (Sudoku p : io.github.metal_pony.sudoku.Main.sudoku17()) {
+        String pStr = p.toString();
+        p.resetCandidatesAndValidity();
+        p.reduce();
+        if (p.isSolved()) {
+          System.out.println(pStr);
+          count++;
+        }
       }
-    });
+    } catch (IOException e) {
+      e.printStackTrace();
+    }
     // System.out.printf("Total %d puzzles", count.get());
-
-    // ------------------------------------------------------
-    // Solves each sudoku17 (for simple benchmark purposes).
-    // ------------------------------------------------------
-    // for (PuzzleEntry entry : PuzzleEntry.all17()) {
-    //   // System.out.println(entry.puzzle().solution().toString());
-    //   entry.puzzle().solution();
-    // }
 
     // ------------------------------------------------------
     // Generate entire collection of masks that satisfy prime sieve.
