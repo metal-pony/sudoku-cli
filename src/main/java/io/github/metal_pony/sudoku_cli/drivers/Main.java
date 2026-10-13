@@ -11,8 +11,6 @@ import java.lang.management.ManagementFactory;
 import java.lang.management.ThreadMXBean;
 import java.math.BigInteger;
 import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedList;
@@ -106,7 +104,7 @@ public class Main {
       new LinkedBlockingQueue<>()
     );
     pool.prestartAllCoreThreads();
-    for (Runnable work : batch) pool.submit(work);
+    batch.forEach(pool::submit);
     pool.shutdown();
     try {
       pool.awaitTermination(1L, TimeUnit.DAYS);
@@ -259,7 +257,7 @@ public class Main {
     put("generateBands", GenerateInitialBands::generateInitialBands);
     put("adhoc", Main::adhoc);
     put("adhoc2", Main::adhoc2);
-    put("wip1", Main::wip_1);
+    put("wip1", Main::wip_1); // broken until Sudoku.searchForPuzzlesAsync is fixed
     put("wip3", Main::wip3);
   }};
 
@@ -313,7 +311,6 @@ public class Main {
                               reads 1 through 9 sequentially.
         --threads             Use all available system threads.
         --threads {n >= 1}    Use a given number of system threads.
-                              Not recommended to use more than the system maximum.
         --pretty              Output grids in a more readable form.
 
       generatePuzzles         Generate sudoku puzzle(s).
@@ -322,7 +319,6 @@ public class Main {
                               reads 1 through 9 sequentially.
         --threads             Use all available system threads.
         --threads {n >= 1}    Use a given number of system threads.
-                              Not recommended to use more than the system maximum.
         --clues {17 - 81}     Generate a puzzle with a given number of clues.
                               Less than 20 is not recommended due to the
                               processing power required.
@@ -347,7 +343,6 @@ public class Main {
         --count               Output only the number of solutions.
         --threads             Use all available system threads.
         --threads {n >= 1}    Use a given number of system threads.
-                              Not recommended to use more than the system maximum.
         --pretty              Output solutions in a more readable form.
 
       scramble                Jumbles the input grid or puzzle randomly.
@@ -390,7 +385,6 @@ public class Main {
                               Default: fp3.
         --threads             Use all available system threads.
         --threads {n >= 1}    Use a given number of system threads.
-                              Not recommended to use more than the system maximum.
 
       sieveSearch             A hitting-set search for finding lower-clue puzzles.
         --grid {str}          The grid to find puzzles for. Default: random.
@@ -406,6 +400,15 @@ public class Main {
     );
   }
 
+  /**
+   * Generates Sudoku configurations.
+   * <pre>
+   * Options/Defaults:
+   *   --amount {n >= 1}      (1). Number to generate.
+   *   --threads [n >= 1]     (all available system threads). Number of threads to use.
+   *   --normalize            (false). Reorder grid values such that the top row is ascending.
+   * </pre>
+   */
   private static void generateConfigs() {
     final boolean normalize = args.normalize();
     final int threads = args.threads();
@@ -421,9 +424,10 @@ public class Main {
       final int amountToGen = (t == realThreads - 1) ? (amountPerThread + remainder) : amountPerThread;
       final int bufCapacity = 1<<8;
       Sudoku config = new Sudoku();
-      final int _t = t;
       batch.add(() -> {
-        int bufSize = _t * (bufCapacity / realThreads);
+        int bufSize = 0;
+        // Each thread will have an output buffer in the form of a StringBuilder,
+        // concatenating up to `bufCapacity` configs and newlines before writing to stdout.
         StringBuilder strb = new StringBuilder();
         for (int n = 0; n < amountToGen; n++) {
           config.genConfig();
@@ -444,22 +448,28 @@ public class Main {
     }
 
     long start = timeMs();
-    // repeatThreadedAndBlock(genFunc, amount, threads);
     runBatchAndBlock(batch, realThreads);
     long end = timeMs();
-
     long ms = end - start;
     double secs = ms / 1000.0;
     double gridsPerSec = secs > 0.0 ? amount / secs : 0.0;
-
-    verboseOutf(
-      "Generated %d configs in %d ms (%.2f grids/second).\n",
-      amount, ms, gridsPerSec
-    );
+    verboseOutf("-- %d ms (%.2f grids/second) --\n", ms, gridsPerSec);
   }
 
-  // TODO Output as json
-  // TODO Difficulty option
+  /**
+   * Generates Sudoku puzzles.
+   * Can read solution grids from stdin, one per line. When supplied, generates
+   * {amount} puzzles for each solution.
+   * <pre>
+   * Options/Defaults:
+   *   --amount {n >= 1}        (1). Number to generate.
+   *   --clues {17 <= n <= 81}  (27). Number of clues on puzzles.
+   *   --grid {str}             (random solution for each puzzle generated). Generate puzzles with a specific solution.
+   *   --threads [n >= 1]       (all available system threads). Number of threads to use.
+   *   --normalize              (false). Reorder grid values such that the top row is ascending.
+   *   --pretty                 (false). Print puzzles in multi-line format.
+   * </pre>
+   */
   private static void generatePuzzles() {
     final boolean normalize = args.normalize();
     final boolean prettyPrint = args.containsKey("pretty");
@@ -474,7 +484,6 @@ public class Main {
     verboseOutf("Using %d threads.\n", threads);
 
     if (lines.isEmpty()) {
-      // Generate {amount} puzzles, each from random solutions.
       verboseOutf(
         "Generating %d %d-clue puzzles from random solutions.\n",
         amount, clues
@@ -484,24 +493,17 @@ public class Main {
         Sudoku puzzle = Sudoku.generatePuzzle(clues);
         if (normalize) puzzle.normalize();
         out(prettyPrint ? puzzle.toMedString() : puzzle.toString());
-        // TODO Handle timeout
-        // if (puzzle == null) {
-        //   // Timed out
-        //   return;
-        // } else {
-        //   System.out.println(puzzle);
-        // }
       };
 
       long start = timeMs();
       repeatThreadedAndBlock(generatePuzzle, amount, threads);
       long end = timeMs();
-      verboseOutf("Done generating in %d ms.\n", end - start);
+      verboseOutf("-- %d ms --\n", end - start);
       return;
     }
 
     // ELSE: Multiple grids given as input.
-    // Generate {amount} puzzles for each grid (given as the solutions).
+    // Generate {amount} puzzles for each solution grid.
 
     verboseOutf(
       "Generating %d %d-clue puzzles for each given solutions (%d).\n",
@@ -516,13 +518,6 @@ public class Main {
           Sudoku puzzle = Sudoku.generatePuzzle(solution, clues, sieve, 0, 60*1000L);
           if (normalize) puzzle.normalize();
           out(prettyPrint ? puzzle.toMedString() : puzzle.toString());
-          // TODO Handle timeout
-          // if (puzzle == null) {
-          //   // Timed out
-          //   return;
-          // } else {
-          //   System.out.println(puzzle);
-          // }
         };
 
         verboseOutf("Solution:\n%s\nPuzzles:\n", prettyPrint ? solution.toMedString() : solution.toString());
@@ -681,7 +676,11 @@ public class Main {
 
     SudokuSieve sieve = new SudokuSieve(solution);
     verboseOut("Seeding sieve...");
-    sieve.seedThreaded(sieve.fullPrintCombos(4));
+    List<Runnable> workList = new ArrayList<>();
+    sieve.fullPrintCombos(4).forEach(mask -> {
+      workList.add(() -> { sieve.searchForUAs(mask); });
+    });
+    runBatchAndBlock(workList, threads);
     verboseOut(sieve.toString());
     final int sieveSizeAtStart = sieve.size();
     verboseOutf("Done. Sieve has %d items.\n", sieveSizeAtStart);
@@ -1111,7 +1110,11 @@ public class Main {
         case "fp4": seedingMasks = sieve.fullPrintCombos(4); break;
         default: throw new RuntimeException("Something went wrong seeding sieve.");
       }
-      sieve.seedThreaded(seedingMasks, threads);
+      List<Runnable> workList = new ArrayList<>();
+      seedingMasks.forEach(mask -> {
+        workList.add(() -> { sieve.searchForUAs(mask); });
+      });
+      runBatchAndBlock(workList, threads);
       long endTime = System.currentTimeMillis();
       out(grid.toString());
       if (showBigInt) {
@@ -1320,10 +1323,10 @@ public class Main {
     System.out.println("Searching for valid puzzles...");
     long startTime = System.currentTimeMillis();
     AtomicLong count = new AtomicLong();
-    Sudoku.searchForPuzzlesAsync(paliMask, (puzzle) -> {
-      System.out.printf("[%d] %s\n", count.incrementAndGet(), puzzle.toString());
-      return true;
-    });
+    // Sudoku.searchForPuzzlesAsync(paliMask, (puzzle) -> {
+    //   System.out.printf("[%d] %s\n", count.incrementAndGet(), puzzle.toString());
+    //   return true;
+    // }, threads);
     long endTime = System.currentTimeMillis();
     System.out.printf(
       "Found %d puzzles of palindrome(clues = %d, r = %d). (%d ms)\n",
@@ -1336,45 +1339,6 @@ public class Main {
     //   System.out.println(puzzle.toString());
     //   return true;
     // });
-  }
-
-  // Utility. Takes multiple grids and outputs a list of strings representing them
-  // as a grid, each in MedString form with {numPerRow} per row.
-  // Example: `sudokuLines(listOfSudoku, 4, "    ")`
-  private static List<String> sudokuLines(List<Sudoku> sudokus, int numPerRow, String delim) {
-    final int len = sudokus.size();
-    List<String> lines = new ArrayList<>();
-    if (len == 0) return lines;
-
-    // with toMedString, 11
-    final int linesPerSudoku = sudokus.get(0).toMedString().split("\n").length;
-
-    String[][] sudokuStrs = new String[numPerRow][];
-    for (int j = 0; j < numPerRow; j++) {
-      sudokuStrs[j] = new String[linesPerSudoku];
-    }
-
-    for (int i = 0; i < len; i+=numPerRow) {
-      for (int j = 0; j < numPerRow; j++) {
-        Arrays.fill(sudokuStrs[j], "");
-        if (i + j < len) {
-          sudokuStrs[j] = sudokus.get(i + j).toMedString().split("\n");
-        }
-      }
-
-      for (int line = 0; line < linesPerSudoku; line++) {
-        String[] sudokuLines = new String[numPerRow];
-        for (int j = 0; j < numPerRow; j++) {
-          sudokuLines[j] = sudokuStrs[j][line];
-        }
-
-        // System.out.println(String.join(delim, sudokuLines).trim());
-        lines.add(String.join(delim, sudokuLines).trim());
-      }
-      // System.out.println("\n");
-      lines.add("");
-    }
-    return lines;
   }
 
   // Finds all 17 cell palindrome masks that satisfy the prime sieve,
@@ -1501,7 +1465,11 @@ public class Main {
 
     SudokuSieve sieve = new SudokuSieve(solution);
     verboseOut("Seeding sieve...");
-    sieve.seedThreaded(sieve.fullPrintCombos(4));
+    List<Runnable> workList = new ArrayList<>();
+    sieve.fullPrintCombos(4).forEach(mask -> {
+      workList.add(() -> { sieve.searchForUAs(mask); });
+    });
+    runBatchAndBlock(workList, threads);
     verboseOut(sieve.toString());
     verboseOutf("Done. Sieve has %d items.\n", sieve.size());
     verboseOut("Starting sequential search...");
@@ -1696,7 +1664,7 @@ public class Main {
     long startSysTime = System.currentTimeMillis();
     long cpuTime = timeCpuExecution(() -> {
       SudokuSieve sieve = new SudokuSieve(grid);
-      sieve.seed(sieve.digitCombos(level));
+      sieve.seed(level);
     });
     long endSysTime = System.currentTimeMillis();
     return new long[]{endSysTime - startSysTime, cpuTime};
@@ -2199,16 +2167,21 @@ public class Main {
       SudokuSieve sieve = new SudokuSieve(grid);
       verboseOutf("Seeding sieve (algo %s; threads %d)...", algo, threads);
       long seedStartTime = timeMs();
+      List<SudokuMask> seedMasks = null;
       switch (algo) {
-        case "dc2": sieve.seedThreaded(sieve.digitCombos(2), threads); break;
-        case "dc3": sieve.seedThreaded(sieve.digitCombos(3), threads); break;
-        case "dc4": sieve.seedThreaded(sieve.digitCombos(4), threads); break;
-        case "fp2": sieve.seedThreaded(sieve.fullPrintCombos(2), threads); break;
-        case "fp3": sieve.seedThreaded(sieve.fullPrintCombos(3), threads); break;
-        case "fp4": sieve.seedThreaded(sieve.fullPrintCombos(4), threads); break;
+        case "dc2": seedMasks = sieve.digitCombos(2); break;
+        case "dc3": seedMasks = sieve.digitCombos(3); break;
+        case "dc4": seedMasks = sieve.digitCombos(4); break;
+        case "fp2": seedMasks = sieve.fullPrintCombos(2); break;
+        case "fp3": seedMasks = sieve.fullPrintCombos(3); break;
+        case "fp4": seedMasks = sieve.fullPrintCombos(4); break;
         default: throw new RuntimeException("Something went wrong creating fingerprint.");
       }
-      sieve.seedThreaded(sieve.digitCombos(2), threads);
+      List<Runnable> workList = new ArrayList<>();
+      seedMasks.forEach(mask -> {
+        workList.add(() -> { sieve.searchForUAs(mask); });
+      });
+      runBatchAndBlock(workList, threads);
       long seedEndTime = timeMs();
       verboseOutf(
         "Done in %d ms.\n%s\nSieve has %d items.\n",
@@ -2260,16 +2233,21 @@ public class Main {
       SudokuSieve sieve = new SudokuSieve(grid);
       verboseOutf("Seeding sieve (algo %s; threads %d)...", algo, threads);
       long seedStartTime = timeMs();
+      List<SudokuMask> seedMasks = null;
       switch (algo) {
-        case "dc2": sieve.seedThreaded(sieve.digitCombos(2), threads); break;
-        case "dc3": sieve.seedThreaded(sieve.digitCombos(3), threads); break;
-        case "dc4": sieve.seedThreaded(sieve.digitCombos(4), threads); break;
-        case "fp2": sieve.seedThreaded(sieve.fullPrintCombos(2), threads); break;
-        case "fp3": sieve.seedThreaded(sieve.fullPrintCombos(3), threads); break;
-        case "fp4": sieve.seedThreaded(sieve.fullPrintCombos(4), threads); break;
+        case "dc2": seedMasks = sieve.digitCombos(2); break;
+        case "dc3": seedMasks = sieve.digitCombos(3); break;
+        case "dc4": seedMasks = sieve.digitCombos(4); break;
+        case "fp2": seedMasks = sieve.fullPrintCombos(2); break;
+        case "fp3": seedMasks = sieve.fullPrintCombos(3); break;
+        case "fp4": seedMasks = sieve.fullPrintCombos(4); break;
         default: throw new RuntimeException("Something went wrong creating fingerprint.");
       }
-      sieve.seedThreaded(sieve.digitCombos(2), threads);
+      List<Runnable> workList = new ArrayList<>();
+      seedMasks.forEach(mask -> {
+        workList.add(() -> { sieve.searchForUAs(mask); });
+      });
+      runBatchAndBlock(workList, threads);
       long seedEndTime = timeMs();
       verboseOutf(
         "Done in %d ms.\n%s\nSieve has %d items.\n",
