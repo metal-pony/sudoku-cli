@@ -823,12 +823,12 @@ public class Main {
         result.put("numClues", grid.numClues());
         int flag = grid.solutionsFlag();
         result.put("solutionsFlag", flag);
-        List<Sudoku> solutions = new ArrayList<>();
+        List<String> solutionStrs = new ArrayList<>();
         long solutionCount = 0L;
         if (flag == 1 || all) {
-          grid.getAllSolutions(solutions);
-          result.put("solutions", solutions);
-          solutionCount = solutions.size();
+          solutionStrs = grid.getAllSolutions().stream().map(s -> s.toString()).toList();
+          result.put("solutions", solutionStrs);
+          solutionCount = solutionStrs.size();
         } else if (count) {
           solutionCount = grid.countSolutionsAsync(threads);
         }
@@ -843,7 +843,7 @@ public class Main {
           if (fp3) result.put("fingerprint_fp3", grid.fp3());
           if (fp4) result.put("fingerprint_fp4", grid.fp4());
           if (useSieve) {
-            SudokuSieve sieve = new SudokuSieve(solutions.getFirst());
+            SudokuSieve sieve = new SudokuSieve(new Sudoku(solutionStrs.getFirst()));
             List<SudokuMask> seedMasks = new ArrayList<>();
             switch (sieveAlgo) {
               case "dc2":
@@ -882,6 +882,8 @@ public class Main {
             verboseOutf("Done (%d ms).\n", (end - start));
             result.put("sieve", sieve.items(new ArrayList<>()));
           }
+        } else if (dc2 || dc3 || dc4 || fp2 || fp3 || fp4) {
+          outf("WARNING: One of more fingerprint args were specified but grid has multiple solutions.\n");
         }
       } else {
         if (gridStr.length() > SPACES) {
