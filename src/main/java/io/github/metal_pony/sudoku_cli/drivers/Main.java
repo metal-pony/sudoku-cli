@@ -139,7 +139,7 @@ public class Main {
           // Fails if there has not been a key yet.
           if (arg.startsWith("--")) {
             lastArgKey = arg.substring(2);
-            if (!lastArgKey.matches("[a-zA-Z]+")) {
+            if (!lastArgKey.matches("[a-zA-Z0-9]+")) {
               throw new IllegalArgumentException("Invalid argument format: " + String.join(" ", args));
             }
             put(lastArgKey, null);
