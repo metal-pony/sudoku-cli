@@ -26,7 +26,6 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 import com.google.gson.FormattingStyle;
@@ -740,12 +739,11 @@ public class Main {
       } else if (allSolutions) {
         grid.searchForSolutionsAsync(solution -> println(solution.toString()), threads);
       } else {
-
-        AtomicInteger solutionCount = new AtomicInteger();
-        grid.searchForSolutions(solution -> {
+        int solutionCount = 0;
+        for (Sudoku solution : grid.solutions()) {
           println(solution.toString());
-          return solutionCount.incrementAndGet() < amount;
-        });
+          if (++solutionCount < amount) break;
+        }
       }
     }
   }
