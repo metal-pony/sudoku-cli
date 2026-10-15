@@ -627,14 +627,15 @@ public class Main {
           result.put("solutionCount", solutionCount);
         }
         if (flag == 1) {
-          if (dc2) result.put("fingerprint_dc2", grid.dc2());
-          if (dc3) result.put("fingerprint_dc3", grid.dc3());
-          if (dc4) result.put("fingerprint_dc4", grid.dc4());
-          if (fp2) result.put("fingerprint_fp2", grid.fp2());
-          if (fp3) result.put("fingerprint_fp3", grid.fp3());
-          if (fp4) result.put("fingerprint_fp4", grid.fp4());
+          Sudoku solution = new Sudoku(solutionStrs.getFirst());
+          if (dc2) result.put("fingerprint_dc2", solution.dc2());
+          if (dc3) result.put("fingerprint_dc3", solution.dc3());
+          if (dc4) result.put("fingerprint_dc4", solution.dc4());
+          if (fp2) result.put("fingerprint_fp2", solution.fp2());
+          if (fp3) result.put("fingerprint_fp3", solution.fp3());
+          if (fp4) result.put("fingerprint_fp4", solution.fp4());
           if (useSieve) {
-            SudokuSieve sieve = new SudokuSieve(new Sudoku(solutionStrs.getFirst()));
+            SudokuSieve sieve = new SudokuSieve(solution);
             List<SudokuMask> seedMasks = new ArrayList<>();
             switch (sieveAlgo) {
               case "dc2":
