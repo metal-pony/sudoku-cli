@@ -40,7 +40,7 @@ import io.github.metal_pony.sudoku.SudokuSieve;
 import io.github.metal_pony.sudoku.util.Counting;
 
 public class Main {
-  private static final String DEFAULT_COMMAND = "generateSolutions";
+  private static final String DEFAULT_COMMAND = "generatePuzzles";
   private static final int MAX_THREADS = Runtime.getRuntime().availableProcessors();
 
   /** Lines read from stdin.*/
