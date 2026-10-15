@@ -146,6 +146,7 @@
             </executions>
             <configuration>
               <mainClass>io.github.metal_pony.sudoku_cli.drivers.Main</mainClass>
+              <imageName>sudoku</imageName>
               <buildArgs>
                 <buildArg>-O3</buildArg>
                 <buildArg>-march=native</buildArg>
