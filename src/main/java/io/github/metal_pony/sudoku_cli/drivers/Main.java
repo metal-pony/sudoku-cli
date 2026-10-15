@@ -82,7 +82,7 @@ public class Main {
   }};
 
   private static void help() {
-    out(
+    println(
       """
       --- COMMANDS ---
 
@@ -236,7 +236,7 @@ public class Main {
     long ms = end - start;
     double secs = ms / 1000.0;
     double gridsPerSec = secs > 0.0 ? amount / secs : 0.0;
-    verboseOutf("-- %d ms (%.2f grids/second) --\n", ms, gridsPerSec);
+    vPrintf("-- %d ms (%.2f grids/second) --\n", ms, gridsPerSec);
   }
 
   /**
@@ -273,10 +273,10 @@ public class Main {
       lines.add(args.get("grid"));
     }
 
-    verboseOutf("Using %d threads.\n", threads);
+    vPrintf("Using %d threads.\n", threads);
 
     if (lines.isEmpty()) {
-      verboseOutf(
+      vPrintf(
         "Generating %d %d-clue puzzles from random solutions.\n",
         amount, clues
       );
@@ -284,20 +284,20 @@ public class Main {
       Runnable generatePuzzle = () -> {
         Sudoku puzzle = Sudoku.generatePuzzle(clues);
         if (normalize) puzzle.normalize();
-        out(prettyPrint ? puzzle.toMedString() : puzzle.toString());
+        println(prettyPrint ? puzzle.toMedString() : puzzle.toString());
       };
 
       long start = timeMs();
       repeatThreadedAndBlock(generatePuzzle, amount, threads);
       long end = timeMs();
-      verboseOutf("-- %d ms --\n", end - start);
+      vPrintf("-- %d ms --\n", end - start);
       return;
     }
 
     // ELSE: Multiple grids given as input.
     // Generate {amount} puzzles for each solution grid.
 
-    verboseOutf(
+    vPrintf(
       "Generating %d %d-clue puzzles for each given solutions (%d).\n",
       amount, clues, lines.size()
     );
@@ -309,14 +309,14 @@ public class Main {
         Runnable generatePuzzle = () -> {
           Sudoku puzzle = Sudoku.generatePuzzle(solution, clues, sieve, 0, 60*1000L);
           if (normalize) puzzle.normalize();
-          out(prettyPrint ? puzzle.toMedString() : puzzle.toString());
+          println(prettyPrint ? puzzle.toMedString() : puzzle.toString());
         };
 
-        verboseOutf("Solution:\n%s\nPuzzles:\n", prettyPrint ? solution.toMedString() : solution.toString());
+        vPrintf("Solution:\n%s\nPuzzles:\n", prettyPrint ? solution.toMedString() : solution.toString());
         long start = timeMs();
         repeatThreadedAndBlock(generatePuzzle, amount, threads);
         long end = timeMs();
-        verboseOutf("-- %d ms --\n", end - start);
+        vPrintf("-- %d ms --\n", end - start);
       } catch (Exception ex) {
         System.err.println("ERROR: Specified grid is malformed.");
         System.exit(1);
@@ -332,11 +332,11 @@ public class Main {
     final int amount = args.amountOrDefault(1);
     final int clues = args.cluesOrDefault(27);
 
-    verboseOutf("Using %d threads.\n", threads);
+    vPrintf("Using %d threads.\n", threads);
 
     if (lines.isEmpty()) {
       // Generate {amount} puzzles, each from random solutions.
-      verboseOutf(
+      vPrintf(
         "Generating %d %d-clue puzzles from random solutions.\n",
         amount, clues
       );
@@ -344,13 +344,13 @@ public class Main {
       Runnable generatePuzzle = () -> {
         SudokuMask mask = new SudokuMask();
         mask.randomPalindrome(clues);
-        out(mask.toStringDots());
+        println(mask.toStringDots());
       };
 
       long start = timeMs();
       repeatThreadedAndBlock(generatePuzzle, amount, threads);
       long end = timeMs();
-      verboseOutf("Done generating in %d ms.\n", end - start);
+      vPrintf("Done generating in %d ms.\n", end - start);
       return;
     }
   }
@@ -366,11 +366,11 @@ public class Main {
       lines.add(args.get("grid"));
     }
 
-    verboseOutf("Using %d threads.\n", threads);
+    vPrintf("Using %d threads.\n", threads);
 
     if (lines.isEmpty()) {
       // Generate {amount} puzzles, each from random solutions.
-      verboseOutf(
+      vPrintf(
         "Generating %d %d-clue puzzles from random solutions.\n",
         amount, clues
       );
@@ -381,12 +381,12 @@ public class Main {
 
         if (args.isVerbose()) {
           if (prettyPrint) {
-            outf("[%d] %s\n%s\n\n", puzzle.numClues(), puzzle.toString(), puzzle.toMedString());
+            printf("[%d] %s\n%s\n\n", puzzle.numClues(), puzzle.toString(), puzzle.toMedString());
           } else {
-            outf("[%d] %s\n", puzzle.numClues(), puzzle.toString());
+            printf("[%d] %s\n", puzzle.numClues(), puzzle.toString());
           }
         } else {
-          out(prettyPrint ? puzzle.toMedString() : puzzle.toString());
+          println(prettyPrint ? puzzle.toMedString() : puzzle.toString());
         }
         // TODO Handle timeout
         // if (puzzle == null) {
@@ -400,14 +400,14 @@ public class Main {
       long start = timeMs();
       repeatThreadedAndBlock(generatePuzzle, amount, threads);
       long end = timeMs();
-      verboseOutf("Done generating in %d ms.\n", end - start);
+      vPrintf("Done generating in %d ms.\n", end - start);
       return;
     }
 
     // ELSE: Multiple grids given as input.
     // TODO Generate {amount} puzzles for each grid (given as the solutions).
 
-    verboseOutf(
+    vPrintf(
       "Generating %d %d-clue puzzles for each given solutions (%d).\n",
       amount, clues, lines.size()
     );
@@ -467,16 +467,16 @@ public class Main {
     System.out.println(solution.toString());
 
     SudokuSieve sieve = new SudokuSieve(solution);
-    verboseOut("Seeding sieve...");
+    vPrintln("Seeding sieve...");
     List<Runnable> workList = new ArrayList<>();
     sieve.fullPrintCombos(4).forEach(mask -> {
       workList.add(() -> { sieve.searchForUAs(mask); });
     });
     runBatchAndBlock(workList, threads);
-    verboseOut(sieve.toString());
+    vPrintln(sieve.toString());
     final int sieveSizeAtStart = sieve.size();
-    verboseOutf("Done. Sieve has %d items.\n", sieveSizeAtStart);
-    verboseOut("Starting sequential search...");
+    vPrintf("Done. Sieve has %d items.\n", sieveSizeAtStart);
+    vPrintln("Starting sequential search...");
 
     long sieveTests = 0L;
     long puzzleTests = 0L;
@@ -524,7 +524,7 @@ public class Main {
       if (flag == 1) {
         // System.out.printf("⭐️ %s [%d] {r %d}\n", p.toString(), puzzles++, r);
         if (args.isVerbose()) {
-          verboseOutf("[%d] %s {r %d}\n", puzzles, p.toString(), r);
+          vPrintf("[%d] %s {r %d}\n", puzzles, p.toString(), r);
         } else {
           System.out.println(p.toString());
         }
@@ -534,7 +534,7 @@ public class Main {
 
     final long endTimeMs = System.currentTimeMillis();
 
-    verboseOutf(
+    vPrintf(
       """
       Done in %d ms.
       Searched through %d palindrome masks.
@@ -667,15 +667,15 @@ public class Main {
                 sieve.searchForUAs(mask);
               });
             });
-            verboseOutf("Seeding sieve... ");
+            vPrintf("Seeding sieve... ");
             long start = timeMs();
             runBatchAndBlock(seedWork, threads);
             long end = timeMs();
-            verboseOutf("Done (%d ms).\n", (end - start));
+            vPrintf("Done (%d ms).\n", (end - start));
             result.put("sieve", sieve.items(new ArrayList<>()));
           }
         } else if (dc2 || dc3 || dc4 || fp2 || fp3 || fp4) {
-          outf("WARNING: One of more fingerprint args were specified but grid has multiple solutions.\n");
+          printf("WARNING: One of more fingerprint args were specified but grid has multiple solutions.\n");
         }
       } else {
         if (gridStr.length() > SPACES) {
@@ -688,7 +688,7 @@ public class Main {
       GsonBuilder gsonBuilder = new GsonBuilder();
       gsonBuilder.setFormattingStyle(FormattingStyle.PRETTY);
       Gson gson = gsonBuilder.create();
-      out(gson.toJson(result));
+      println(gson.toJson(result));
     }
   }
 
@@ -717,7 +717,7 @@ public class Main {
       long start = System.currentTimeMillis();
       batchFindFirstSolutions(lines, threads, args.isVerbose());
       long end = System.currentTimeMillis();
-      verboseOutf("Found solutions for %d puzzles in %d ms.\n", lines.size(), end-start);
+      vPrintf("Found solutions for %d puzzles in %d ms.\n", lines.size(), end-start);
       return;
     }
 
@@ -733,17 +733,17 @@ public class Main {
       if (countSolutions) {
         long count = grid.countSolutionsAsync(threads);
         if (args.isVerbose()) {
-          outf("%s -> %d solutions\n", grid.toString(), count);
+          printf("%s -> %d solutions\n", grid.toString(), count);
         } else {
-          out(count);
+          println(count);
         }
       } else if (allSolutions) {
-        grid.searchForSolutionsAsync(solution -> out(solution.toString()), threads);
+        grid.searchForSolutionsAsync(solution -> println(solution.toString()), threads);
       } else {
 
         AtomicInteger solutionCount = new AtomicInteger();
         grid.searchForSolutions(solution -> {
-          out(solution.toString());
+          println(solution.toString());
           return solutionCount.incrementAndGet() < amount;
         });
       }
@@ -777,9 +777,9 @@ public class Main {
     for (int i = 0; i < solutionFtrs.size(); i++) {
       try {
         if (isVerbose) {
-          outf("%s -> %s\n", gridStrs.get(i), solutionFtrs.get(i).get());
+          printf("%s -> %s\n", gridStrs.get(i), solutionFtrs.get(i).get());
         } else {
-          out(solutionFtrs.get(i).get());
+          println(solutionFtrs.get(i).get());
         }
       } catch (InterruptedException | ExecutionException e) {
         e.printStackTrace();
@@ -814,7 +814,7 @@ public class Main {
         System.exit(1);
       }
 
-      out(grid.scramble().toString());
+      println(grid.scramble().toString());
     }
   }
 
@@ -838,7 +838,7 @@ public class Main {
       System.exit(1);
     }
 
-    verboseOutf("Creating sieves for given grids, with algo %s, and %d threads.", algo, threads);
+    vPrintf("Creating sieves for given grids, with algo %s, and %d threads.", algo, threads);
 
     for (String gridStr : lines) {
       Sudoku grid = null;
@@ -867,16 +867,16 @@ public class Main {
       });
       runBatchAndBlock(workList, threads);
       long endTime = System.currentTimeMillis();
-      out(grid.toString());
+      println(grid.toString());
       if (showBigInt) {
         for (SudokuMask item : sieve.items(new ArrayList<>())) {
           String decimalStr = (new BigInteger(item.toString(), 2)).toString();
           System.out.printf("%30s %s\n", decimalStr, grid.filterStr(item));
         }
       } else {
-        out(sieve.toString());
+        println(sieve.toString());
       }
-      outf("Added %d items to sieve (%d ms).\n", sieve.size(), endTime - startTime);
+      printf("Added %d items to sieve (%d ms).\n", sieve.size(), endTime - startTime);
     }
   }
 
@@ -893,7 +893,7 @@ public class Main {
       System.exit(1);
     }
 
-    if (threads > 1) verboseOutf("Using %d threads.\n", threads);
+    if (threads > 1) vPrintf("Using %d threads.\n", threads);
 
     if (lines.size() >= threads && threads > 1) {
       batchFingerprinting();
@@ -925,7 +925,7 @@ public class Main {
       if (args.isVerbose()) {
         System.out.printf("%s\n%s: %s (%d ms)\n", grid.toString(), algo, fp, sysTime);
       } else {
-        out(fp);
+        println(fp);
       }
     }
   }
@@ -976,7 +976,7 @@ public class Main {
     // Print solutions (in original order).
     for (int i = 0; i < solutionFtrs.size(); i++) {
       try {
-        out(solutionFtrs.get(i).get());
+        println(solutionFtrs.get(i).get());
       } catch (InterruptedException | ExecutionException e) {
         e.printStackTrace();
       }
@@ -1210,20 +1210,20 @@ public class Main {
     final long nck = Counting.nChooseK(40, clues/2).longValueExact();
 
     Sudoku solution = new Sudoku(lines.get(0));
-    verboseOut("Searching for palindrome puzzles. Solution:");
+    vPrintln("Searching for palindrome puzzles. Solution:");
     // System.out.println("Searching for palindrome puzzles. Solution:");
     System.out.println(solution.toString());
 
     SudokuSieve sieve = new SudokuSieve(solution);
-    verboseOut("Seeding sieve...");
+    vPrintln("Seeding sieve...");
     List<Runnable> workList = new ArrayList<>();
     sieve.fullPrintCombos(4).forEach(mask -> {
       workList.add(() -> { sieve.searchForUAs(mask); });
     });
     runBatchAndBlock(workList, threads);
-    verboseOut(sieve.toString());
-    verboseOutf("Done. Sieve has %d items.\n", sieve.size());
-    verboseOut("Starting sequential search...");
+    vPrintln(sieve.toString());
+    vPrintf("Done. Sieve has %d items.\n", sieve.size());
+    vPrintln("Starting sequential search...");
 
     ThreadPoolExecutor pool = new ThreadPoolExecutor(
       threads, threads,
@@ -1271,7 +1271,7 @@ public class Main {
     }
 
     final long endTimeMs = System.currentTimeMillis();
-    verboseOutf("Found %d palindrome puzzles (%d ms).\n", found.get(), (endTimeMs - startTimeMs));
+    vPrintf("Found %d palindrome puzzles (%d ms).\n", found.get(), (endTimeMs - startTimeMs));
 
 
     ///////////////////////////////////////////////////
@@ -1902,7 +1902,7 @@ public class Main {
       System.exit(1);
     }
 
-    if (threads > 1) verboseOutf("Using %d threads.\n", threads);
+    if (threads > 1) vPrintf("Using %d threads.\n", threads);
 
     for (String gridStr : lines) {
       Sudoku grid = null;
@@ -1913,10 +1913,10 @@ public class Main {
         System.exit(1);
       }
 
-      verboseOutf("Searching with grid:\n%s\n", grid.toString());
+      vPrintf("Searching with grid:\n%s\n", grid.toString());
 
       SudokuSieve sieve = new SudokuSieve(grid);
-      verboseOutf("Seeding sieve (algo %s; threads %d)...", algo, threads);
+      vPrintf("Seeding sieve (algo %s; threads %d)...", algo, threads);
       long seedStartTime = timeMs();
       List<SudokuMask> seedMasks = null;
       switch (algo) {
@@ -1934,7 +1934,7 @@ public class Main {
       });
       runBatchAndBlock(workList, threads);
       long seedEndTime = timeMs();
-      verboseOutf(
+      vPrintf(
         "Done in %d ms.\n%s\nSieve has %d items.\n",
         seedEndTime - seedStartTime,
         sieve.toString(),
@@ -1942,10 +1942,10 @@ public class Main {
       );
 
       SieveSearcher searcher = new SieveSearcher(sieve);
-      out("Starting in just a sec...");
+      println("Starting in just a sec...");
       sleep(2000L);
       searcher.search(clues);
-      out("Done searching.");
+      println("Done searching.");
     }
   }
 
@@ -1967,7 +1967,7 @@ public class Main {
       System.exit(1);
     }
 
-    if (threads > 1) verboseOutf("Using %d threads.\n", threads);
+    if (threads > 1) vPrintf("Using %d threads.\n", threads);
 
     for (String gridStr : lines) {
       Sudoku grid = null;
@@ -1978,11 +1978,11 @@ public class Main {
         System.exit(1);
       }
 
-      verboseOutf("Searching with grid:\n%s\n", grid.toString());
+      vPrintf("Searching with grid:\n%s\n", grid.toString());
 
       // Create and seed a sieve
       SudokuSieve sieve = new SudokuSieve(grid);
-      verboseOutf("Seeding sieve (algo %s; threads %d)...", algo, threads);
+      vPrintf("Seeding sieve (algo %s; threads %d)...", algo, threads);
       long seedStartTime = timeMs();
       List<SudokuMask> seedMasks = null;
       switch (algo) {
@@ -2000,7 +2000,7 @@ public class Main {
       });
       runBatchAndBlock(workList, threads);
       long seedEndTime = timeMs();
-      verboseOutf(
+      vPrintf(
         "Done in %d ms.\n%s\nSieve has %d items.\n",
         seedEndTime - seedStartTime,
         sieve.toString(),
@@ -2008,10 +2008,10 @@ public class Main {
       );
 
       SieveSearcher searcher = new SieveSearcher(sieve);
-      out("Starting in just a sec...");
+      println("Starting in just a sec...");
       sleep(2000L);
       searcher.minsearch();
-      out("Done searching.");
+      println("Done searching.");
     }
   }
 
@@ -2029,7 +2029,7 @@ public class Main {
       }
     });
 
-    outf(
+    printf(
       "benchConfigGeneration({ amount: %d }): %d ms\n",
       amount,
       TimeUnit.NANOSECONDS.toMillis(time)
@@ -2037,17 +2037,17 @@ public class Main {
   }
 
   /** Shorthand for System.out.println(x).*/
-  private static void out(Object x) { System.out.println(x); }
+  private static void println(Object x) { System.out.println(x); }
   /** Shorthand for System.out.printf(format, args).*/
-  private static void outf(String format, Object...args) {
+  private static void printf(String format, Object...args) {
     System.out.printf(format, args);
   }
   /** Prints a line only if `--verbose` output is enabled.*/
-  private static void verboseOut(Object x) {
+  private static void vPrintln(Object x) {
     if (args.isVerbose()) System.out.println(x);
   }
   /** Prints only if `--verbose` output is enabled.*/
-  private static void verboseOutf(String format, Object...args) {
+  private static void vPrintf(String format, Object...args) {
     if (Main.args.isVerbose()) System.out.printf(format, args);
   }
   /** Shorthand for System.currentTimeMillis().*/
@@ -2305,7 +2305,7 @@ public class Main {
       }
     }
 
-    verboseOutf("Command: %s\n", command);
+    vPrintf("Command: %s\n", command);
 
     if (!COMMANDS.containsKey(command)) {
       System.err.println("Command not recognized.");
