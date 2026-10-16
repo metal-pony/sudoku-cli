@@ -7,6 +7,7 @@ import java.awt.Dimension;
 import javax.swing.JButton;
 import javax.swing.JFrame;
 
+import static io.github.metal_pony.sudoku.Constants.*;
 import io.github.metal_pony.sudoku.Sudoku;
 
 public class SudokuGuiDemo {
@@ -27,7 +28,7 @@ public class SudokuGuiDemo {
 				return;
 			}
 
-			for (int i = 0; i < Sudoku.SPACES; i++) {
+			for (int i = 0; i < SPACES; i++) {
 				panel.cells[i].digit = solution.getDigit(i);
 			}
 			panel.repaint();

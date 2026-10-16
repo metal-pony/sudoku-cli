@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Generates Sudoku configurations.
+# Runs the jar build in target/.
 # Run this from the base project directory.
 
-java -jar target/sudoku-1.jar "$@"
+java -jar target/sudoku-cli-1.jar "$@"

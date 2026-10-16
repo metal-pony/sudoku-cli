@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Generates Sudoku configurations.
+# Generates Sudoku puzzles.
 # Run this from the base project directory.
 
-java -jar target/sudoku-1.jar generatePuzzles "$@"
+java -jar target/sudoku-cli-1.jar generatePuzzles "$@"

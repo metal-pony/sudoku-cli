@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Solves a given Sudoku puzzle.
+# Solves a given sudoku puzzle.
 # Run this from the base project directory.
 
-java -jar target/sudoku-1.jar solve "$@"
+java -jar target/sudoku-cli-1.jar solve "$@"

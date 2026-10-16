@@ -3,4 +3,4 @@
 # Starts a Sudoku game in a Java Swing GUI.
 # Run this from the base project directory.
 
-java -jar target/sudoku-1.jar play "$@"
+java -jar target/sudoku-cli-1.jar play "$@"
