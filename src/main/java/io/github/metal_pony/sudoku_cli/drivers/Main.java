@@ -27,6 +27,7 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 
 import com.google.gson.FormattingStyle;
 import com.google.gson.Gson;
@@ -41,6 +42,7 @@ import io.github.metal_pony.sudoku.util.Counting;
 import picocli.CommandLine;
 import picocli.CommandLine.ArgGroup;
 import picocli.CommandLine.Command;
+import picocli.CommandLine.Mixin;
 import picocli.CommandLine.Spec;
 import picocli.CommandLine.Model.CommandSpec;
 import picocli.CommandLine.Option;
@@ -162,6 +164,84 @@ public class Main {
     return CommandLine.ExitCode.OK;
   }
 
+  /**
+   * Validates --clues argument.
+   */
+  public static class ClueCountConverter implements CommandLine.ITypeConverter<Integer> {
+    @Override
+    public Integer convert(String value) {
+      final int clues;
+      try {
+        clues = Integer.parseInt(value);
+      } catch (NumberFormatException e) {
+        throw new CommandLine.TypeConversionException(String.format(
+          "clues must be an integer between %d and %d", MIN_CLUES, SPACES
+        )
+        );
+      }
+
+      if (clues < MIN_CLUES || clues > SPACES) {
+        throw new CommandLine.TypeConversionException(String.format(
+          "clues must be between %d and %d", MIN_CLUES, SPACES
+        ));
+      }
+      return clues;
+    }
+  }
+
+  /**
+   * Used for generatePuzzles options mutual exclusivity.
+   * For example, `--grid 12345etc --mask 010011etc` does not make sense.
+   * Same with --mask + --clues.
+   * Same with --mask + --pali.
+   * However, any combo of --grid --pali --clues is permissible.
+   */
+  public static class PuzzleInputOptions {
+    @ArgGroup(exclusive = true, multiplicity = "0..1")
+    SourceOptions source;
+  }
+  public static class SourceOptions {
+    @Option(names = {"--mask", "-m"}, paramLabel = "MASK")
+    String mask;
+
+    @ArgGroup(exclusive = false, multiplicity = "0..1")
+    PuzzleOptions puzzle;
+  }
+
+  /**
+   * Subset of puzzle generation options that are not mutually exclusive.
+   */
+  public static class PuzzleOptions {
+    @Option(names = "--clues", defaultValue = "27", converter = ClueCountConverter.class)
+    int clues = 27;
+
+    String solution;
+    @Option(
+      names = {"--solution", "--grid"},
+      paramLabel = "SOLUTION",
+      description = "Use a specific solution."
+    )
+    // Validates the --grid argument.
+    public void setSolution(String value) {
+      if (!Sudoku.isValidStr(value)) {
+        throw new CommandLine.ParameterException(spec.commandLine(),
+          String.format("ERROR: Malformed sudoku string: %s", value)
+        );
+      }
+
+      if (!new Sudoku(value).isSolved()) {
+        throw new CommandLine.ParameterException(spec.commandLine(),
+          String.format("ERROR: Sudoku solution given is invalid or not solved: %s", value)
+        );
+      }
+
+      solution = value;
+    }
+
+    @Option(names = {"--palindrome", "--pali"})
+    boolean palindrome;
+  }
+
   private static final int MAX_THREADS = Runtime.getRuntime().availableProcessors();
 
   /** Lines read from stdin.*/
@@ -170,9 +250,6 @@ public class Main {
   static final ArgsMap args = new ArgsMap();
 
   private static final Map<String, Runnable> COMMANDS = new HashMap<>() {{
-    put("generatePuzzles", Main::generatePuzzles);
-    put("generatePalis", Main::generatePalindromePuzzles);
-
     put("generatePaliMasks", Main::generatePaliMasks);
     put("paliSearch", Main::paliSearch);
 
@@ -204,83 +281,174 @@ public class Main {
    * {amount} puzzles for each solution.
    * <pre>
    * Options/Defaults:
-   *   --amount {n >= 1}        (1). Number to generate.
+   *   N {n >= 1}               (1). Number to generate.
    *   --clues {17 <= n <= 81}  (27). Number of clues on puzzles.
    *   --grid {str}             (random solution for each puzzle generated). Generate puzzles with a specific solution.
-   *   --threads [n >= 1]       (all available system threads). Number of threads to use.
    *   --normalize              (false). Reorder grid values such that the top row is ascending.
    *   --pretty                 (false). Print puzzles in multi-line format.
+   *   --pali | --palindrome    (false). Create a puzzle with palindrome symmetry.
+   *   --mask | -m {str}        Generate puzzles with clues as indicated in the mask.
    * </pre>
    */
-  private static void generatePuzzles() {
-    final boolean normalize = args.normalize();
-    final boolean prettyPrint = args.containsKey("pretty");
-    // TODO https://github.com/metal-pony/sudoku-cli/issues/5
-    final boolean palindrome = args.containsKey("pali") || args.containsKey("palindrome");
-    final int threads = args.threads();
-    final int amount = args.amountOrDefault(1);
+  @Command(
+    name = "generatePuzzles",
+    aliases = {"puzzle", "puzzles"},
+    description = "Generate Sudoku puzzles."
+  )
+  int generatePuzzles(
+    @Parameters(
+      index = "0",
+      arity = "0..1",
+      defaultValue = "1",
+      paramLabel = "N",
+      description = "Number of puzzles to generate"
+    )
+    int amount,
 
-    // TODO https://github.com/metal-pony/sudoku-cli/issues/4
-    // final String cluesStr = args.getOrDefault("clues", "27");
-    // final boolean useClueRange = cluesStr.contains("-");
-    final int clues = args.cluesOrDefault(27);
+    @Mixin
+    PuzzleInputOptions inputOptions,
 
-    // TODO https://github.com/metal-pony/sudoku-cli/issues/6
-    final String mask = args.get("mask");
+    @Option(names = "--normalize")
+    boolean normalize,
 
-    if (args.containsKey("grid")) {
-      lines.add(args.get("grid"));
+    @Option(names = "--pretty")
+    boolean prettyPrint
+  ) {
+    PuzzleOptions puzzleOptions = inputOptions.source == null
+      ? null
+      : inputOptions.source.puzzle;
+    int clues = puzzleOptions == null ? 27 : puzzleOptions.clues;
+    String solution = puzzleOptions == null ? null : puzzleOptions.solution;
+    boolean solutionGiven = (solution != null);
+    boolean palindrome = puzzleOptions != null && puzzleOptions.palindrome;
+    String mask = inputOptions.source == null ? null : inputOptions.source.mask;
+
+    // This command can read from stdin.
+    // Any data read is expected to be a solved solution grid (1 per line).
+    // Used as the solution(s) for generated puzzles.
+    // If amount {N} is specified, then N puzzles are generated for each solution.
+    // If --grid is also given, it will be processed first before any stdin solutions.
+    if (solutionGiven) {
+      linesIn.addFirst(solution);
     }
 
-    vPrintf("Using %d threads.\n", threads);
+    // Mask validation:
+    // - minimum number of clues
+    // - satisfy prime sieve
+    if (mask != null) {
+      SudokuMask m = new SudokuMask(mask);
+      if (!SudokuMask.satisfiesPrimeSieve(m)) {
+        throw new RuntimeException("ERROR: Specified mask does not satisfy the prime sieve.");
+      }
+      if (m.bitCount() < MIN_CLUES) {
+        throw new RuntimeException("ERROR: Specified mask too few clues.");
+      }
+    }
 
-    if (lines.isEmpty()) {
-      vPrintf(
+    if (verbose) printf("Using %d threads.\n", threads);
+
+    if (linesIn.isEmpty()) {
+      if (verbose) printf(
         "Generating %d %d-clue puzzles from random solutions.\n",
         amount, clues
       );
 
       Runnable generatePuzzle = () -> {
-        Sudoku puzzle = Sudoku.generatePuzzle(clues);
-        if (normalize) puzzle.normalize();
-        println(prettyPrint ? puzzle.toMedString() : puzzle.toString());
+        try {
+          Sudoku puzzle = null;
+          if (palindrome) {
+            if (verbose) println("palindrome generation...");
+            Sudoku _solution = solutionGiven ? new Sudoku(solution) : null;
+            // TODO requires io.github.metal-pony:sudoku:0.1.1-SNAPSHOT
+            puzzle = Sudoku.generatePalindromePuzzle(clues, _solution, null);
+          } else if (mask != null) {
+            SudokuMask m = new SudokuMask(mask);
+            // TODO create iterable form for searchForPuzzles
+            AtomicReference<Sudoku> _p = new AtomicReference<>();
+            Sudoku.searchForPuzzles(m, p -> {
+              _p.set(p);
+              return false;
+            });
+            puzzle = _p.get();
+          } else {
+            puzzle = Sudoku.generatePuzzle(clues);
+          }
+          if (normalize) puzzle.normalize();
+          println(prettyPrint ? puzzle.toMedString() : puzzle.toString());
+        } catch (Exception ex) {
+          // TODO remove try/catch after debugging
+          ex.printStackTrace();
+        }
       };
 
       long start = timeMs();
       repeatThreadedAndBlock(generatePuzzle, amount, threads);
       long end = timeMs();
       vPrintf("-- %d ms --\n", end - start);
-      return;
+      return CommandLine.ExitCode.OK;
     }
 
     // ELSE: Multiple grids given as input.
     // Generate {amount} puzzles for each solution grid.
-
-    vPrintf(
+    if (verbose) printf(
       "Generating %d %d-clue puzzles for each given solutions (%d).\n",
-      amount, clues, lines.size()
+      amount, clues, linesIn.size()
     );
 
-    for (String solutionStr : lines) {
+    for (String solutionStr : linesIn) {
       try {
-        final Sudoku solution = new Sudoku(solutionStr);
-        final SudokuSieve sieve = new SudokuSieve(solution);
+        final Sudoku _solution = new Sudoku(solutionStr);
+        if (!_solution.isValid()) {
+          throw new CommandLine.ParameterException(spec.commandLine(), String.format(
+            "WARNING: Skipped %s: Invalid solution grid",
+            solutionStr
+          ));
+        }
+        if (!_solution.isSolved()) {
+          throw new CommandLine.ParameterException(spec.commandLine(), String.format(
+            "WARNING: Skipped %s: Solution grid is not solved",
+            solutionStr
+          ));
+        }
+        final SudokuSieve sieve = new SudokuSieve(_solution);
+        sieve.seed();
         Runnable generatePuzzle = () -> {
-          Sudoku puzzle = Sudoku.generatePuzzle(solution, clues, sieve, 0, 60*1000L);
-          if (normalize) puzzle.normalize();
-          println(prettyPrint ? puzzle.toMedString() : puzzle.toString());
+          try {
+            Sudoku puzzle = null;
+            if (palindrome) {
+              puzzle = Sudoku.generatePalindromePuzzle(clues, _solution, sieve);
+            } else if (mask != null) {
+              SudokuMask m = new SudokuMask(mask);
+              AtomicReference<Sudoku> _p = new AtomicReference<>();
+              Sudoku.searchForPuzzles(m, p -> {
+                _p.set(p);
+                return false;
+              });
+
+              puzzle = _p.get();
+            } else {
+              puzzle = Sudoku.generatePuzzle(_solution, clues, sieve, 0, 60*1000L);
+            }
+            if (normalize) puzzle.normalize();
+            println(prettyPrint ? puzzle.toMedString() : puzzle.toString());
+          } catch (Exception ex) {
+            // TODO remove try/catch after debugging
+            ex.printStackTrace();
+          }
         };
 
-        vPrintf("Solution:\n%s\nPuzzles:\n", prettyPrint ? solution.toMedString() : solution.toString());
+        if (verbose) printf("Solution:\n%s\nPuzzles:\n", prettyPrint ? _solution.toMedString() : _solution.toString());
         long start = timeMs();
         repeatThreadedAndBlock(generatePuzzle, amount, threads);
         long end = timeMs();
-        vPrintf("-- %d ms --\n", end - start);
+        if (verbose) printf("-- %d ms --\n", end - start);
       } catch (Exception ex) {
         System.err.println("ERROR: Specified grid is malformed.");
-        System.exit(1);
+        return CommandLine.ExitCode.SOFTWARE;
       }
     }
+
+    return CommandLine.ExitCode.OK;
   }
 
   /**
