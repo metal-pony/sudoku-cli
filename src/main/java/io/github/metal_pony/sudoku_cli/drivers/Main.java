@@ -58,6 +58,105 @@ public class Main {
   @Spec
   static CommandSpec spec;
 
+  private static final int MAX_THREADS = Runtime.getRuntime().availableProcessors();
+  // TODO remove lines and args once command conversions are complete.
+  private static final List<String> lines = new ArrayList<>();
+  static final ArgsMap args = new ArgsMap();
+
+  public static class ThreadCountConverter implements CommandLine.ITypeConverter<Integer> {
+    @Override
+    public Integer convert(String value) {
+      if ("max".equalsIgnoreCase(value)) {
+        return Runtime.getRuntime().availableProcessors();
+      }
+
+      int threads = Integer.parseInt(value);
+      if (threads < 1) {
+        throw new CommandLine.TypeConversionException("thread count must be at least 1");
+      }
+      return threads;
+    }
+  }
+
+  /**
+   * Validates --clues argument.
+   */
+  public static class ClueCountConverter implements CommandLine.ITypeConverter<Integer> {
+    @Override
+    public Integer convert(String value) {
+      final int clues;
+      try {
+        clues = Integer.parseInt(value);
+      } catch (NumberFormatException e) {
+        throw new CommandLine.TypeConversionException(String.format(
+          "clues must be an integer between %d and %d", MIN_CLUES, SPACES
+        )
+        );
+      }
+
+      if (clues < MIN_CLUES || clues > SPACES) {
+        throw new CommandLine.TypeConversionException(String.format(
+          "clues must be between %d and %d", MIN_CLUES, SPACES
+        ));
+      }
+      return clues;
+    }
+  }
+
+  /**
+   * Used for generatePuzzles options mutual exclusivity.
+   * For example, `--grid 12345etc --mask 010011etc` does not make sense.
+   * Same with --mask + --clues.
+   * Same with --mask + --pali.
+   * However, any combo of --grid --pali --clues is permissible.
+   */
+  public static class PuzzleInputOptions {
+    @ArgGroup(exclusive = true, multiplicity = "0..1")
+    SourceOptions source;
+  }
+
+  public static class SourceOptions {
+    @Option(names = {"--mask", "-m"}, paramLabel = "MASK")
+    String mask;
+
+    @ArgGroup(exclusive = false, multiplicity = "0..1")
+    PuzzleOptions puzzle;
+  }
+
+  /**
+   * Subset of puzzle generation options that are not mutually exclusive.
+   */
+  public static class PuzzleOptions {
+    @Option(names = "--clues", defaultValue = "27", converter = ClueCountConverter.class)
+    int clues = 27;
+
+    String solution;
+    @Option(
+      names = {"--solution", "--grid"},
+      paramLabel = "SOLUTION",
+      description = "Use a specific solution."
+    )
+    // Validates the --grid argument.
+    public void setSolution(String value) {
+      if (!Sudoku.isValidStr(value)) {
+        throw new CommandLine.ParameterException(spec.commandLine(),
+          String.format("ERROR: Malformed sudoku string: %s", value)
+        );
+      }
+
+      if (!new Sudoku(value).isSolved()) {
+        throw new CommandLine.ParameterException(spec.commandLine(),
+          String.format("ERROR: Sudoku solution given is invalid or not solved: %s", value)
+        );
+      }
+
+      solution = value;
+    }
+
+    @Option(names = {"--palindrome", "--pali"})
+    boolean palindrome;
+  }
+
   @Option(
     names = {"-v", "--v", "--verbose"},
     scope = ScopeType.INHERIT,
@@ -76,24 +175,7 @@ public class Main {
   )
   int threads;
 
-  public static class ThreadCountConverter implements CommandLine.ITypeConverter<Integer> {
-    @Override
-    public Integer convert(String value) {
-      if ("max".equalsIgnoreCase(value)) {
-        return Runtime.getRuntime().availableProcessors();
-      }
-
-      int threads = Integer.parseInt(value);
-      if (threads < 1) {
-        throw new CommandLine.TypeConversionException("thread count must be at least 1");
-      }
-      return threads;
-    }
-  }
-
-  /**
-   * Contains lines read in from stdin.
-   */
+  /** Lines read from stdin.*/
   List<String> linesIn = new ArrayList<>();
 
   @Command(
@@ -163,91 +245,6 @@ public class Main {
 
     return CommandLine.ExitCode.OK;
   }
-
-  /**
-   * Validates --clues argument.
-   */
-  public static class ClueCountConverter implements CommandLine.ITypeConverter<Integer> {
-    @Override
-    public Integer convert(String value) {
-      final int clues;
-      try {
-        clues = Integer.parseInt(value);
-      } catch (NumberFormatException e) {
-        throw new CommandLine.TypeConversionException(String.format(
-          "clues must be an integer between %d and %d", MIN_CLUES, SPACES
-        )
-        );
-      }
-
-      if (clues < MIN_CLUES || clues > SPACES) {
-        throw new CommandLine.TypeConversionException(String.format(
-          "clues must be between %d and %d", MIN_CLUES, SPACES
-        ));
-      }
-      return clues;
-    }
-  }
-
-  /**
-   * Used for generatePuzzles options mutual exclusivity.
-   * For example, `--grid 12345etc --mask 010011etc` does not make sense.
-   * Same with --mask + --clues.
-   * Same with --mask + --pali.
-   * However, any combo of --grid --pali --clues is permissible.
-   */
-  public static class PuzzleInputOptions {
-    @ArgGroup(exclusive = true, multiplicity = "0..1")
-    SourceOptions source;
-  }
-  public static class SourceOptions {
-    @Option(names = {"--mask", "-m"}, paramLabel = "MASK")
-    String mask;
-
-    @ArgGroup(exclusive = false, multiplicity = "0..1")
-    PuzzleOptions puzzle;
-  }
-
-  /**
-   * Subset of puzzle generation options that are not mutually exclusive.
-   */
-  public static class PuzzleOptions {
-    @Option(names = "--clues", defaultValue = "27", converter = ClueCountConverter.class)
-    int clues = 27;
-
-    String solution;
-    @Option(
-      names = {"--solution", "--grid"},
-      paramLabel = "SOLUTION",
-      description = "Use a specific solution."
-    )
-    // Validates the --grid argument.
-    public void setSolution(String value) {
-      if (!Sudoku.isValidStr(value)) {
-        throw new CommandLine.ParameterException(spec.commandLine(),
-          String.format("ERROR: Malformed sudoku string: %s", value)
-        );
-      }
-
-      if (!new Sudoku(value).isSolved()) {
-        throw new CommandLine.ParameterException(spec.commandLine(),
-          String.format("ERROR: Sudoku solution given is invalid or not solved: %s", value)
-        );
-      }
-
-      solution = value;
-    }
-
-    @Option(names = {"--palindrome", "--pali"})
-    boolean palindrome;
-  }
-
-  private static final int MAX_THREADS = Runtime.getRuntime().availableProcessors();
-
-  /** Lines read from stdin.*/
-  private static final List<String> lines = new ArrayList<>();
-
-  static final ArgsMap args = new ArgsMap();
 
   private static final Map<String, Runnable> COMMANDS = new HashMap<>() {{
     put("generatePaliMasks", Main::generatePaliMasks);
