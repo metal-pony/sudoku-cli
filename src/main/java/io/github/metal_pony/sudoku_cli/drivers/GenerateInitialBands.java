@@ -11,6 +11,7 @@ import java.util.Set;
 import java.util.Stack;
 import java.util.concurrent.TimeUnit;
 
+import static io.github.metal_pony.sudoku.Constants.*;
 import io.github.metal_pony.sudoku.Sudoku;
 
 /**
@@ -55,7 +56,7 @@ public class GenerateInitialBands {
         long startTimeNs = bean.getCurrentThreadCpuTime();
 
         Set<String> fullBandSet = new HashSet<>();
-        final int N = Sudoku.DIGITS * 3;
+        final int N = DIGITS * 3;
 
         if (args.isVerbose()) {
             System.out.println("-- Generating large initial bands set... --");
@@ -117,7 +118,7 @@ public class GenerateInitialBands {
         //    band -> config -> search for UAs(level 2? 3?) -> when found, if (bandMask & ua) == ua -> if unseen, add to queue
 
         HashSet<String> reducedBands = new HashSet<>();
-        final int N = Sudoku.DIGITS * 3;
+        final int N = DIGITS * 3;
 
         long timeNs = Main.timeCpuExecution(() -> {
             List<String> allBands = new ArrayList<>(fullBandSet);
@@ -139,7 +140,7 @@ public class GenerateInitialBands {
                 // }
 
                 while (!q.isEmpty()) {
-                    String bStr = q.poll() + "0".repeat(Sudoku.SPACES - band.length());
+                    String bStr = q.poll() + "0".repeat(SPACES - band.length());
 
                     // Transforms
                     Sudoku[] transforms = new Sudoku[] {

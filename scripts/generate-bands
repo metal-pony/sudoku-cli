@@ -3,4 +3,4 @@
 # Generates Sudoku configurations.
 # Run this from the base project directory.
 
-java -jar target/sudoku-1.jar generateBands "$@"
+java -jar target/sudoku-cli-1.jar generateBands "$@"
