@@ -89,6 +89,10 @@ public class Main {
     }
   }
 
+  /**
+   * Contains lines read in from stdin.
+   */
+  List<String> linesIn = new ArrayList<>();
 
   @Command(
     name = "generateSolutions",
@@ -2273,7 +2277,9 @@ public class Main {
   }
 
   public static void main(String[] args) {
-    int exitCode = new CommandLine(new Main()).execute(args);
+    Main main = new Main();
+    readSysInLines(main.linesIn);
+    int exitCode = new CommandLine(main).execute(args);
     System.exit(exitCode);
   }
 }
