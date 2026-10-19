@@ -38,9 +38,126 @@ import io.github.metal_pony.sudoku.Sudoku;
 import io.github.metal_pony.sudoku.SudokuMask;
 import io.github.metal_pony.sudoku.SudokuSieve;
 import io.github.metal_pony.sudoku.util.Counting;
+import picocli.CommandLine;
+import picocli.CommandLine.ArgGroup;
+import picocli.CommandLine.Command;
+import picocli.CommandLine.Spec;
+import picocli.CommandLine.Model.CommandSpec;
+import picocli.CommandLine.Option;
+import picocli.CommandLine.Parameters;
+import picocli.CommandLine.ScopeType;
 
+@Command(
+  name = "sudoku",
+  mixinStandardHelpOptions = true,
+  subcommands = CommandLine.HelpCommand.class
+)
 public class Main {
-  private static final String DEFAULT_COMMAND = "generatePuzzles";
+  @Spec
+  static CommandSpec spec;
+
+  @Option(
+    names = {"-v", "--v", "--verbose"},
+    scope = ScopeType.INHERIT,
+    description = "Show detailed output."
+  )
+  boolean verbose;
+
+  @Option(
+    names = "--threads",
+    arity = "0..1",
+    defaultValue = "1",
+    fallbackValue = "max",
+    paramLabel = "N",
+    description = "Threads to use; without a value, use all available processors.",
+    converter = ThreadCountConverter.class
+  )
+  int threads;
+
+  public static class ThreadCountConverter implements CommandLine.ITypeConverter<Integer> {
+    @Override
+    public Integer convert(String value) {
+      if ("max".equalsIgnoreCase(value)) {
+        return Runtime.getRuntime().availableProcessors();
+      }
+
+      int threads = Integer.parseInt(value);
+      if (threads < 1) {
+        throw new CommandLine.TypeConversionException("thread count must be at least 1");
+      }
+      return threads;
+    }
+  }
+
+
+  @Command(
+    name = "generateSolutions",
+    aliases = {"solution", "solutions", "generateConfigs", "config", "configs"},
+    description = "Generate Sudoku solution grids."
+  )
+  int generateSolutions(
+    @Parameters(
+      index = "0",
+      arity = "0..1",
+      defaultValue = "1",
+      paramLabel = "N",
+      description = "Number of solutions to generate"
+    )
+    int amount,
+
+    @Option(names = "--normalize")
+    boolean normalize
+  ) {
+    if (amount < 1) {
+      throw new CommandLine.ParameterException(
+        spec.commandLine(), "N must be at least 1"
+      );
+    }
+
+    int realThreads = Math.min(threads, amount);
+    List<Runnable> batch = new ArrayList<>(realThreads);
+    int amountPerThread = amount / realThreads;
+    int remainder = amount % realThreads;
+    String lineSeparator = System.lineSeparator();
+
+    for (int t = 0; t < realThreads; t++) {
+      final int amountToGen = (t == realThreads - 1) ? (amountPerThread + remainder) : amountPerThread;
+      final int bufCapacity = 1<<8;
+      Sudoku config = new Sudoku();
+      batch.add(() -> {
+        int bufSize = 0;
+        // Each thread will have an output buffer in the form of a StringBuilder,
+        // concatenating up to `bufCapacity` configs and newlines before writing to stdout.
+        StringBuilder strb = new StringBuilder();
+        for (int n = 0; n < amountToGen; n++) {
+          config.genConfig();
+          if (normalize) config.normalize();
+          strb.append(config.toString());
+          strb.append(lineSeparator);
+          bufSize++;
+          if (bufSize == bufCapacity) {
+            print(strb.toString());
+            bufSize = 0;
+            strb.delete(0, strb.length());
+          }
+        }
+        if (strb.length() > 0) {
+          print(strb.toString());
+        }
+      });
+    }
+
+    long start = timeMs();
+    runBatchAndBlock(batch, realThreads);
+    long end = timeMs();
+    long ms = end - start;
+    double secs = ms / 1000.0;
+    double gridsPerSec = secs > 0.0 ? amount / secs : 0.0;
+    if (verbose) printf("-- %d ms (%.2f grids/second) --\n", ms, gridsPerSec);
+
+    return CommandLine.ExitCode.OK;
+  }
+  // private static final String DEFAULT_COMMAND = "generatePuzzles";
   private static final int MAX_THREADS = Runtime.getRuntime().availableProcessors();
 
   /** Lines read from stdin.*/
@@ -49,9 +166,9 @@ public class Main {
   static final ArgsMap args = new ArgsMap();
 
   private static final Map<String, Runnable> COMMANDS = new HashMap<>() {{
-    put("help", Main::help);
-    put("generateConfigs", Main::generateConfigs);
-    put("generateSolutions", Main::generateConfigs);
+    // put("help", Main::help);
+    // put("generateConfigs", Main::generateConfigs);
+    // put("generateSolutions", Main::generateConfigs);
     put("generatePuzzles", Main::generatePuzzles);
     put("generatePalis", Main::generatePalindromePuzzles);
 
@@ -80,163 +197,163 @@ public class Main {
     put("wip3", Main::wip3);
   }};
 
-  private static void help() {
-    println(
-      """
-      --- COMMANDS ---
+  // private static void help() {
+  //   println(
+  //     """
+  //     --- COMMANDS ---
 
-      help                    Display commands and usage.
+  //     help                    Display commands and usage.
 
-      generateSolutions       Generate sudoku solution(s).
-        --amount {n >= 1}     Specify an amount to generate.
-        --normalize           Arrange digits such that the top row of the board
-                              reads 1 through 9 sequentially.
-        --threads             Use all available system threads.
-        --threads {n >= 1}    Use a given number of system threads.
-        --pretty              Output grids in a more readable form.
+  //     generateSolutions       Generate sudoku solution(s).
+  //       --amount {n >= 1}     Specify an amount to generate.
+  //       --normalize           Arrange digits such that the top row of the board
+  //                             reads 1 through 9 sequentially.
+  //       --threads             Use all available system threads.
+  //       --threads {n >= 1}    Use a given number of system threads.
+  //       --pretty              Output grids in a more readable form.
 
-      generatePuzzles         Generate sudoku puzzle(s).
-        --amount {n >= 1}     Specify an amount to generate.
-        --normalize           Arrange digits such that the top row of the solution
-                              reads 1 through 9 sequentially.
-        --threads             Use all available system threads.
-        --threads {n >= 1}    Use a given number of system threads.
-        --clues {17 - 81}     Generate a puzzle with a given number of clues.
-                              Less than 20 is not recommended due to the
-                              processing power required.
-                              Default 31.
-        --difficulty {1 - 3}  Specify the difficulty of the generate puzzle.
-          1: Easy             Solvable by finding naked and hidden singles.
-          2: Moderate         Solvable by finding {Not yet defined}
-          3: Hard             Solvable with more advanced techniques than above.
-                              Generation may hang or fail if the number of clues
-                              is high, e.g., --clues 80 --difficulty 3 ; since there
-                              aren't enough empty spaces on the grid to form a
-                              difficult puzzle.
-        --solution            Generate a random solution to use for the puzzle(s).
-        --solution {str}      Use the given solution for the puzzle(s).
-        --pretty              Output puzzles in a more readable form.
+  //     generatePuzzles         Generate sudoku puzzle(s).
+  //       --amount {n >= 1}     Specify an amount to generate.
+  //       --normalize           Arrange digits such that the top row of the solution
+  //                             reads 1 through 9 sequentially.
+  //       --threads             Use all available system threads.
+  //       --threads {n >= 1}    Use a given number of system threads.
+  //       --clues {17 - 81}     Generate a puzzle with a given number of clues.
+  //                             Less than 20 is not recommended due to the
+  //                             processing power required.
+  //                             Default 31.
+  //       --difficulty {1 - 3}  Specify the difficulty of the generate puzzle.
+  //         1: Easy             Solvable by finding naked and hidden singles.
+  //         2: Moderate         Solvable by finding {Not yet defined}
+  //         3: Hard             Solvable with more advanced techniques than above.
+  //                             Generation may hang or fail if the number of clues
+  //                             is high, e.g., --clues 80 --difficulty 3 ; since there
+  //                             aren't enough empty spaces on the grid to form a
+  //                             difficult puzzle.
+  //       --solution            Generate a random solution to use for the puzzle(s).
+  //       --solution {str}      Use the given solution for the puzzle(s).
+  //       --pretty              Output puzzles in a more readable form.
 
-      solve                   Find solution(s) for a given grid.
-        --grid {str}          The grid to find solutions for.
-        --all                 Output all solutions.
-        --first               Output the first solution found.
-        --amount {n >= 1}     Output the first (n) solutions found.
-        --count               Output only the number of solutions.
-        --threads             Use all available system threads.
-        --threads {n >= 1}    Use a given number of system threads.
-        --pretty              Output solutions in a more readable form.
+  //     solve                   Find solution(s) for a given grid.
+  //       --grid {str}          The grid to find solutions for.
+  //       --all                 Output all solutions.
+  //       --first               Output the first solution found.
+  //       --amount {n >= 1}     Output the first (n) solutions found.
+  //       --count               Output only the number of solutions.
+  //       --threads             Use all available system threads.
+  //       --threads {n >= 1}    Use a given number of system threads.
+  //       --pretty              Output solutions in a more readable form.
 
-      scramble                Jumbles the input grid or puzzle randomly.
-        --grid {str}          The grid to scramble.
+  //     scramble                Jumbles the input grid or puzzle randomly.
+  //       --grid {str}          The grid to scramble.
 
-      csv                     Transforms input sudoku data into csv.
-                              Input should be plaintext puzzles, solutions, or
-                              puzzle/solutions csv records.
-        --format {str}        The output format.
-                              Components should be wrapped in curly braces.
-                              Unknown components will be calculated, so be
-                              mindful of the CPU usage of level 4 fingerprints.
-                  COMPONENTS  {puzzle} from input.
-                              {solution} from input, or calculated from puzzle.
-                              {dc2} digit-combo fingerprint (level 2).
-                              {dc3} digit-combo fingerprint (level 3).
-                              {dc4} ...
-                              {fp2} full-print fingerprint (level 2).
-                              {fp3} ...
-                              {fp4} ...
-                  EXAMPLE     csv --format '{puzzle},{solution},{fp3}'
-        --threads             Use all available system threads.
-        --threads {n >= 1}    Use a given number of system threads.
+  //     csv                     Transforms input sudoku data into csv.
+  //                             Input should be plaintext puzzles, solutions, or
+  //                             puzzle/solutions csv records.
+  //       --format {str}        The output format.
+  //                             Components should be wrapped in curly braces.
+  //                             Unknown components will be calculated, so be
+  //                             mindful of the CPU usage of level 4 fingerprints.
+  //                 COMPONENTS  {puzzle} from input.
+  //                             {solution} from input, or calculated from puzzle.
+  //                             {dc2} digit-combo fingerprint (level 2).
+  //                             {dc3} digit-combo fingerprint (level 3).
+  //                             {dc4} ...
+  //                             {fp2} full-print fingerprint (level 2).
+  //                             {fp3} ...
+  //                             {fp4} ...
+  //                 EXAMPLE     csv --format '{puzzle},{solution},{fp3}'
+  //       --threads             Use all available system threads.
+  //       --threads {n >= 1}    Use a given number of system threads.
 
-      sieve                   Generate a set of unavoidable sets for a given grid.
-        --algo                The strategy to use for seeding the sieve.
-                              Usually digit-combos (dc), or full-print (fp),
-                              from levels 2 to 4.
-                      VALUES  "dc2", "dc3", "dc4", "fp2", "fp3", "fp4".
-                              Default: fp3.
+  //     sieve                   Generate a set of unavoidable sets for a given grid.
+  //       --algo                The strategy to use for seeding the sieve.
+  //                             Usually digit-combos (dc), or full-print (fp),
+  //                             from levels 2 to 4.
+  //                     VALUES  "dc2", "dc3", "dc4", "fp2", "fp3", "fp4".
+  //                             Default: fp3.
 
-      fingerprint (alt: fp)   Generate a hash for a grid. The fingerprint will be
-                              the same regardless of how the grid is transformed
-                              via symmetry-preserving transformations. All grids
-                              that are essentially similar are guaranteed to share
-                              the same fingerprint.
-        --algo                The strategy to use. Usually digit-combos (dc), or
-                              full-print (fp), from levels 2 to 4.
-                              "dc2", "dc3", "dc4", "fp2", "fp3", "fp4".
-                              Default: fp3.
-        --threads             Use all available system threads.
-        --threads {n >= 1}    Use a given number of system threads.
+  //     fingerprint (alt: fp)   Generate a hash for a grid. The fingerprint will be
+  //                             the same regardless of how the grid is transformed
+  //                             via symmetry-preserving transformations. All grids
+  //                             that are essentially similar are guaranteed to share
+  //                             the same fingerprint.
+  //       --algo                The strategy to use. Usually digit-combos (dc), or
+  //                             full-print (fp), from levels 2 to 4.
+  //                             "dc2", "dc3", "dc4", "fp2", "fp3", "fp4".
+  //                             Default: fp3.
+  //       --threads             Use all available system threads.
+  //       --threads {n >= 1}    Use a given number of system threads.
 
-      sieveSearch             A hitting-set search for finding lower-clue puzzles.
-        --grid {str}          The grid to find puzzles for. Default: random.
-        --level {2 - 4}       The level at which to seed the sieve. Default: 3.
-        --maxClues {17 - 81}  Maximum number of puzzle clues. The search may discover
-                              puzzles with less than this maximum. Default: no max.
+  //     sieveSearch             A hitting-set search for finding lower-clue puzzles.
+  //       --grid {str}          The grid to find puzzles for. Default: random.
+  //       --level {2 - 4}       The level at which to seed the sieve. Default: 3.
+  //       --maxClues {17 - 81}  Maximum number of puzzle clues. The search may discover
+  //                             puzzles with less than this maximum. Default: no max.
 
-      minSearch               A hitting-set search designed to find puzzles with
-                              the lowest number of clues.
-        --grid {str}          The grid to find minimum puzzles for. Default: random.
-        --level {2 - 4}       The level at which to seed the sieve. Default: 3.
-      """
-    );
-  }
+  //     minSearch               A hitting-set search designed to find puzzles with
+  //                             the lowest number of clues.
+  //       --grid {str}          The grid to find minimum puzzles for. Default: random.
+  //       --level {2 - 4}       The level at which to seed the sieve. Default: 3.
+  //     """
+  //   );
+  // }
 
-  /**
-   * Generates Sudoku configurations.
-   * <pre>
-   * Options/Defaults:
-   *   --amount {n >= 1}      (1). Number to generate.
-   *   --threads [n >= 1]     (all available system threads). Number of threads to use.
-   *   --normalize            (false). Reorder grid values such that the top row is ascending.
-   * </pre>
-   */
-  private static void generateConfigs() {
-    final boolean normalize = args.normalize();
-    final int threads = args.threads();
-    final int amount = args.amountOrDefault(1);
+  // /**
+  //  * Generates Sudoku configurations.
+  //  * <pre>
+  //  * Options/Defaults:
+  //  *   --amount {n >= 1}      (1). Number to generate.
+  //  *   --threads [n >= 1]     (all available system threads). Number of threads to use.
+  //  *   --normalize            (false). Reorder grid values such that the top row is ascending.
+  //  * </pre>
+  //  */
+  // private static void generateConfigs() {
+  //   final boolean normalize = args.normalize();
+  //   final int threads = args.threads();
+  //   final int amount = args.amountOrDefault(1);
 
-    int realThreads = Math.min(threads, amount);
-    List<Runnable> batch = new ArrayList<>(realThreads);
-    int amountPerThread = amount / realThreads;
-    int remainder = amount % realThreads;
-    String lineSeparator = System.lineSeparator();
+  //   int realThreads = Math.min(threads, amount);
+  //   List<Runnable> batch = new ArrayList<>(realThreads);
+  //   int amountPerThread = amount / realThreads;
+  //   int remainder = amount % realThreads;
+  //   String lineSeparator = System.lineSeparator();
 
-    for (int t = 0; t < realThreads; t++) {
-      final int amountToGen = (t == realThreads - 1) ? (amountPerThread + remainder) : amountPerThread;
-      final int bufCapacity = 1<<8;
-      Sudoku config = new Sudoku();
-      batch.add(() -> {
-        int bufSize = 0;
-        // Each thread will have an output buffer in the form of a StringBuilder,
-        // concatenating up to `bufCapacity` configs and newlines before writing to stdout.
-        StringBuilder strb = new StringBuilder();
-        for (int n = 0; n < amountToGen; n++) {
-          config.genConfig();
-          if (normalize) config.normalize();
-          strb.append(config.toString());
-          strb.append(lineSeparator);
-          bufSize++;
-          if (bufSize == bufCapacity) {
-            System.out.print(strb.toString());
-            bufSize = 0;
-            strb.delete(0, strb.length());
-          }
-        }
-        if (strb.length() > 0) {
-          System.out.print(strb.toString());
-        }
-      });
-    }
+  //   for (int t = 0; t < realThreads; t++) {
+  //     final int amountToGen = (t == realThreads - 1) ? (amountPerThread + remainder) : amountPerThread;
+  //     final int bufCapacity = 1<<8;
+  //     Sudoku config = new Sudoku();
+  //     batch.add(() -> {
+  //       int bufSize = 0;
+  //       // Each thread will have an output buffer in the form of a StringBuilder,
+  //       // concatenating up to `bufCapacity` configs and newlines before writing to stdout.
+  //       StringBuilder strb = new StringBuilder();
+  //       for (int n = 0; n < amountToGen; n++) {
+  //         config.genConfig();
+  //         if (normalize) config.normalize();
+  //         strb.append(config.toString());
+  //         strb.append(lineSeparator);
+  //         bufSize++;
+  //         if (bufSize == bufCapacity) {
+  //           System.out.print(strb.toString());
+  //           bufSize = 0;
+  //           strb.delete(0, strb.length());
+  //         }
+  //       }
+  //       if (strb.length() > 0) {
+  //         System.out.print(strb.toString());
+  //       }
+  //     });
+  //   }
 
-    long start = timeMs();
-    runBatchAndBlock(batch, realThreads);
-    long end = timeMs();
-    long ms = end - start;
-    double secs = ms / 1000.0;
-    double gridsPerSec = secs > 0.0 ? amount / secs : 0.0;
-    vPrintf("-- %d ms (%.2f grids/second) --\n", ms, gridsPerSec);
-  }
+  //   long start = timeMs();
+  //   runBatchAndBlock(batch, realThreads);
+  //   long end = timeMs();
+  //   long ms = end - start;
+  //   double secs = ms / 1000.0;
+  //   double gridsPerSec = secs > 0.0 ? amount / secs : 0.0;
+  //   vPrintf("-- %d ms (%.2f grids/second) --\n", ms, gridsPerSec);
+  // }
 
   /**
    * Generates Sudoku puzzles.
@@ -2316,25 +2433,8 @@ public class Main {
     }
   }
 
-  public static void main(String[] args) throws IOException, ClassNotFoundException {
-    Main.args.parseCommandLineArgs(args, 1);
-
-    String command = DEFAULT_COMMAND;
-    if (args != null) {
-      if (args.length >= 1) {
-        command = args[0];
-      }
-    }
-
-    vPrintf("Command: %s\n", command);
-
-    if (!COMMANDS.containsKey(command)) {
-      System.err.println("Command not recognized.");
-      System.exit(1);
-    }
-
-    readSysInLines(lines);
-
-    COMMANDS.get(command).run();
+  public static void main(String[] args) {
+    int exitCode = new CommandLine(new Main()).execute(args);
+    System.exit(exitCode);
   }
 }
