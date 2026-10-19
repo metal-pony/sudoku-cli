@@ -138,18 +138,8 @@ public class Main {
     )
     // Validates the --grid argument.
     public void setSolution(String value) {
-      if (!Sudoku.isValidStr(value)) {
-        throw new CommandLine.ParameterException(spec.commandLine(),
-          String.format("ERROR: Malformed sudoku string: %s", value)
-        );
-      }
-
-      if (!new Sudoku(value).isSolved()) {
-        throw new CommandLine.ParameterException(spec.commandLine(),
-          String.format("ERROR: Sudoku solution given is invalid or not solved: %s", value)
-        );
-      }
-
+      // throws Parameter exception if validation fails
+      validateSolutionStr(value);
       solution = value;
     }
 
@@ -247,9 +237,6 @@ public class Main {
   }
 
   private static final Map<String, Runnable> COMMANDS = new HashMap<>() {{
-    put("generatePaliMasks", Main::generatePaliMasks);
-    put("paliSearch", Main::paliSearch);
-
     put("check", Main::check);
     put("solve", Main::solve);
     put("scramble", Main::scramble);
@@ -479,195 +466,109 @@ public class Main {
     }
   }
 
-  private static void generatePalindromePuzzles() {
-    final boolean normalize = args.normalize();
-    final boolean prettyPrint = args.containsKey("pretty");
-    final int threads = args.threads();
-    final int amount = args.amountOrDefault(1);
-    final int clues = args.cluesOrDefault(27);
+  @Command(
+    name = "paliSearch",
+    aliases = {"palindromeSearch", "pali-search", "palis"},
+    description = "Generates all palindrome sudoku puzzles with N clues for a solution."
+  )
+  int paliSearch(
+    @Parameters(
+      index = "0",
+      arity = "0..1",
+      paramLabel = "SOLUTION",
+      description = "Solution to generate puzzles for."
+    )
+    String solution,
 
-    if (args.containsKey("grid")) {
-      lines.add(args.get("grid"));
+    @Option(names = "--clues", defaultValue = "24", converter = ClueCountConverter.class)
+    int clues,
+
+    @Option(names = "--r")
+    boolean rValues,
+
+    @Option(names = "--pretty")
+    boolean prettyPrint
+  ) {
+    Sudoku _solution = null;
+    boolean solutionGiven = (solution != null);
+    if (solutionGiven) {
+      validateSolutionStr(solution);
+      _solution = new Sudoku(solution);
+    } else {
+      _solution = Sudoku.generateConfig();
     }
 
-    vPrintf("Using %d threads.\n", threads);
-
-    if (lines.isEmpty()) {
-      // Generate {amount} puzzles, each from random solutions.
-      vPrintf(
-        "Generating %d %d-clue puzzles from random solutions.\n",
-        amount, clues
-      );
-
-      Runnable generatePuzzle = () -> {
-        Sudoku puzzle = Sudoku.generatePalindromePuzzle(clues);
-        if (normalize) puzzle.normalize();
-
-        if (args.isVerbose()) {
-          if (prettyPrint) {
-            printf("[%d] %s\n%s\n\n", puzzle.numClues(), puzzle.toString(), puzzle.toMedString());
-          } else {
-            printf("[%d] %s\n", puzzle.numClues(), puzzle.toString());
-          }
-        } else {
-          println(prettyPrint ? puzzle.toMedString() : puzzle.toString());
-        }
-        // TODO Handle timeout
-        // if (puzzle == null) {
-        //   // Timed out
-        //   return;
-        // } else {
-        //   System.out.println(puzzle);
-        // }
-      };
-
-      long start = timeMs();
-      repeatThreadedAndBlock(generatePuzzle, amount, threads);
-      long end = timeMs();
-      vPrintf("Done generating in %d ms.\n", end - start);
-      return;
+    if (verbose) {
+      println("Searching for palindrome puzzles. Solution:");
+      println(_solution.toString());
+      printf("Creating and seeding sieve (%d threads)... ", threads);
     }
+    SudokuSieve sieve = new SudokuSieve(_solution);
+    List<Runnable> work = new ArrayList<>();
+    sieve.digitCombos(4).forEach(comboMask -> {
+      work.add(() -> sieve.searchForUAs(comboMask));
+    });
+    runBatchAndBlock(work, threads);
+    final int sieveSizeAtStart = sieve.size();
+    if (verbose) printf("Done. Size: %d.\n", sieveSizeAtStart);
 
-    // ELSE: Multiple grids given as input.
-    // TODO Generate {amount} puzzles for each grid (given as the solutions).
-
-    vPrintf(
-      "Generating %d %d-clue puzzles for each given solutions (%d).\n",
-      amount, clues, lines.size()
-    );
-
-    // for (String solutionStr : lines) {
-    //   try {
-    //     final Sudoku solution = new Sudoku(solutionStr);
-    //     final SudokuSieve sieve = new SudokuSieve(solution);
-    //     Runnable generatePuzzle = () -> {
-    //       Sudoku puzzle = Sudoku.generatePuzzle(solution, clues, sieve, 0, 60*1000L);
-    //       if (normalize) puzzle.normalize();
-    //       out(prettyPrint ? puzzle.toMedString() : puzzle.toString());
-    //       // TODO Handle timeout
-    //       // if (puzzle == null) {
-    //       //   // Timed out
-    //       //   return;
-    //       // } else {
-    //       //   System.out.println(puzzle);
-    //       // }
-    //     };
-
-    //     verboseOutf("Solution:\n%s\nPuzzles:\n", prettyPrint ? solution.toMedString() : solution.toString());
-    //     long start = timeMs();
-    //     repeatThreadedAndBlock(generatePuzzle, amount, threads);
-    //     long end = timeMs();
-    //     verboseOutf("-- %d ms --\n", end - start);
-    //   } catch (Exception ex) {
-    //     System.err.println("ERROR: Specified grid is malformed.");
-    //     System.exit(1);
-    //   }
-    // }
-  }
-
-  private static void paliSearch() {
-    // final boolean normalize = args.normalize();
-    // final boolean prettyPrint = args.containsKey("pretty");
-    final int threads = args.threads();
-    // final int amount = args.amountOrDefault(1);
-    final int clues = args.cluesOrDefault(27);
-
-    final long startTimeMs = System.currentTimeMillis();
-
-    if (args.containsKey("grid")) {
-      lines.add(args.get("grid"));
-    }
-    if (lines.isEmpty()) {
-      lines.add(Sudoku.generateConfig().toString());
-    }
+    int k = clues / 2;
+    long nck = Counting.NChooseKLong(40, k);
+    if (verbose) println("Starting sequential palindrome search...");
 
     SudokuMask m = new SudokuMask();
-    // int clues = 24;
-    int k = clues / 2;
-    long nck = Counting.nChooseK(40, k).longValueExact();
-
-    Sudoku solution = new Sudoku(lines.get(0));
-    System.out.println("Searching for palindrome puzzles. Solution:");
-    System.out.println(solution.toString());
-
-    SudokuSieve sieve = new SudokuSieve(solution);
-    vPrintln("Seeding sieve...");
-    List<Runnable> workList = new ArrayList<>();
-    sieve.fullPrintCombos(4).forEach(mask -> {
-      workList.add(() -> { sieve.searchForUAs(mask); });
-    });
-    runBatchAndBlock(workList, threads);
-    vPrintln(sieve.toString());
-    final int sieveSizeAtStart = sieve.size();
-    vPrintf("Done. Sieve has %d items.\n", sieveSizeAtStart);
-    vPrintln("Starting sequential search...");
-
-    long sieveTests = 0L;
     long puzzleTests = 0L;
     long puzzles = 0L;
-    int flag = 2;
-
     long r = 0L;
-    // AtomicInteger solutionCount = new AtomicInteger();
-    // AtomicBoolean addedToSieve = new AtomicBoolean();
-    int solutionCount = 0;
-    boolean addedToSieve = false;
+    final long startTimeMs = timeMs();
     while (r < nck) {
       // Accelerate r until the mask satisfies the sieve
+      // TODO Create palindrome mask iterator
       do {
         m.palindrome(clues, r);
-        sieveTests++;
         r++;
       } while (!sieve.doesMaskSatisfy(m) && r < nck);
       if (r >= nck) break;
 
-      Sudoku p = solution.filter(m);
-      // System.out.printf(
-      //   "✅ %s [%d] {ss %d} {st %d} {pt %d}\n",
-      //   p.toString(), r, sieve.size(), sieveTests, puzzleTests
-      // );
-      // solutionCount.set(0);
-      // addedToSieve.set(false);
-
-      // solutionCount = 0;
-      // addedToSieve = false;
-      // for (Sudoku s : p.solutions()) {
-      //   SudokuMask diffMask = solution.diffMask(s);
-      //   solutionCount++;
-      //   if (sieve.add(diffMask)) {
-      //     verboseOutf(" + " + solution.filterStr(diffMask) + " added to sieve");
-      //     addedToSieve = true;
-      //     break;
-      //   }
-      // }
-      // flag = (!addedToSieve && solutionCount == 1) ? 1 : 2;
-
-      flag = p.solutionsFlag();
+      Sudoku p = _solution.filter(m);
 
       puzzleTests++;
-      if (flag == 1) {
-        // System.out.printf("⭐️ %s [%d] {r %d}\n", p.toString(), puzzles++, r);
-        if (args.isVerbose()) {
-          vPrintf("[%d] %s {r %d}\n", puzzles, p.toString(), r);
+      int count = 0;
+      for (Sudoku s : p.solutions()) {
+        SudokuMask diffMask = _solution.diffMask(s);
+        if (sieve.add(diffMask)) {
+          // if (verbose) {
+          //   printf(" +++ added to sieve +++ %s [%d]\n", _solution.filterStr(diffMask), sieve.size());
+          // }
+        }
+        if (++count > 2) break;
+      }
+
+      if (count == 1) {
+        if (verbose) {
+          printf("[%d] %s {r %d}\n", puzzles, p.toString(), r);
         } else {
-          System.out.println(p.toString());
+          println(p.toString());
         }
         puzzles++;
       }
     }
 
-    final long endTimeMs = System.currentTimeMillis();
+    final long endTimeMs = timeMs();
+    if (verbose) {
+      printf(
+        """
+        Done in %d ms.
+        Searched through %d palindrome masks.
+        puzzleTests: %d; itemsAddedToSieve: %d; puzzlesFound: %d
+        """,
+        endTimeMs - startTimeMs,
+        nck,
+        puzzleTests, sieve.size() - sieveSizeAtStart, puzzles
+      );
+    }
 
-    vPrintf(
-      """
-      Done in %d ms.
-      Searched through %d palindrome masks.
-      { sieveTests: %d, puzzleTests: %d, itemsAddedToSieve: %d, puzzlesFound: %d }
-      """,
-      endTimeMs - startTimeMs,
-      nck,
-      sieveTests, puzzleTests, sieve.size() - sieveSizeAtStart, puzzles
-    );
+    return CommandLine.ExitCode.OK;
   }
 
   /**
@@ -2158,6 +2059,26 @@ public class Main {
       amount,
       TimeUnit.NANOSECONDS.toMillis(time)
     );
+  }
+
+  /**
+   * Checks if the given sudoku solution string is valid.
+   * @param value sudoku string
+   * @throws ParameterException if the sudoku string is malformed or if the
+   * sudoku it represents is not solved.
+   */
+  private static void validateSolutionStr(String value) {
+    if (!Sudoku.isValidStr(value)) {
+      throw new CommandLine.ParameterException(spec.commandLine(),
+        String.format("ERROR: Malformed sudoku string: %s", value)
+      );
+    }
+
+    if (!new Sudoku(value).isSolved()) {
+      throw new CommandLine.ParameterException(spec.commandLine(),
+        String.format("ERROR: Sudoku solution given is invalid or not solved: %s", value)
+      );
+    }
   }
 
   /** Shorthand for System.out.print(x).*/
