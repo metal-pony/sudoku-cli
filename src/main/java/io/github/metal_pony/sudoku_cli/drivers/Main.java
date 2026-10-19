@@ -2035,6 +2035,8 @@ public class Main {
     );
   }
 
+  /** Shorthand for System.out.print(x).*/
+  private static void print(Object x) { System.out.print(x); }
   /** Shorthand for System.out.println(x).*/
   private static void println(Object x) { System.out.println(x); }
   /** Shorthand for System.out.printf(format, args).*/
@@ -2158,6 +2160,26 @@ public class Main {
       pool.close();
       // out("thread pool closed");
     }
+  }
+
+  private static List<String> readSysInLines(List<String> lines) {
+    // Check if there's any input to read from standard in.
+    // If stdin is redirected/piped, System.console() will be null -> read it.
+    // if (System.console() == null) {
+    //   readAllLines(System.in, lines);
+    // }
+    // Avoid blocking when stdout is piped (e.g. `| tee ...`).
+    // System.console() can be null even if stdin is a terminal, so only
+    // read stdin if there is data immediately available.
+    BufferedReader stdinProbe = new BufferedReader(new InputStreamReader(System.in));
+    try {
+      if (stdinProbe.ready()) {
+        readAllLines(System.in, lines);
+      }
+    } catch (IOException e) {
+      e.printStackTrace();
+    }
+    return lines;
   }
 
   /**
@@ -2311,22 +2333,7 @@ public class Main {
       System.exit(1);
     }
 
-    // Check if there's any input to read from standard in.
-    // If stdin is redirected/piped, System.console() will be null -> read it.
-    // if (System.console() == null) {
-    //   readAllLines(System.in, lines);
-    // }
-    // Avoid blocking when stdout is piped (e.g. `| tee ...`).
-    // System.console() can be null even if stdin is a terminal, so only
-    // read stdin if there is data immediately available.
-    BufferedReader stdinProbe = new BufferedReader(new InputStreamReader(System.in));
-    try {
-      if (stdinProbe.ready()) {
-        readAllLines(System.in, lines);
-      }
-    } catch (IOException e) {
-      e.printStackTrace();
-    }
+    readSysInLines(lines);
 
     COMMANDS.get(command).run();
   }
