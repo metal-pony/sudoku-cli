@@ -11,6 +11,7 @@ import java.lang.management.ManagementFactory;
 import java.lang.management.ThreadMXBean;
 import java.math.BigInteger;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedList;
@@ -32,6 +33,8 @@ import java.util.concurrent.atomic.AtomicReference;
 import com.google.gson.FormattingStyle;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonIOException;
+import com.google.gson.stream.JsonWriter;
 
 import io.github.metal_pony.sudoku.SieveSearcher;
 import static io.github.metal_pony.sudoku.Constants.*;
@@ -46,6 +49,7 @@ import picocli.CommandLine.Mixin;
 import picocli.CommandLine.Spec;
 import picocli.CommandLine.Model.CommandSpec;
 import picocli.CommandLine.Option;
+import picocli.CommandLine.ParameterException;
 import picocli.CommandLine.Parameters;
 import picocli.CommandLine.ScopeType;
 
@@ -62,6 +66,14 @@ public class Main {
   // TODO remove lines and args once command conversions are complete.
   private static final List<String> lines = new ArrayList<>();
   static final ArgsMap args = new ArgsMap();
+
+  /** List of valid sudoku fingerprinting algorithms.*/
+  static final List<String> FP_ALGOS = new ArrayList<>(){{
+    addAll(Arrays.asList(new String[]{
+      "dc2", "dc3", "dc4",
+      "fp2", "fp3", "fp4",
+    }));
+  }};
 
   public static class ThreadCountConverter implements CommandLine.ITypeConverter<Integer> {
     @Override
@@ -237,8 +249,6 @@ public class Main {
   }
 
   private static final Map<String, Runnable> COMMANDS = new HashMap<>() {{
-    put("check", Main::check);
-    put("solve", Main::solve);
     put("scramble", Main::scramble);
     put("sieve", Main::createSieve);
     put("fingerprint", Main::fingerprint);
@@ -599,180 +609,306 @@ public class Main {
    *     ],
    *   }
    */
-  private static void check() {
-    final boolean count = args.containsKey("count");
-    final boolean all = args.containsKey("all");
-    final int threads = args.threads();
-    final boolean dc2 = args.containsKey("dc2");
-    final boolean dc3 = args.containsKey("dc3");
-    final boolean dc4 = args.containsKey("dc4");
-    final boolean fp2 = args.containsKey("fp2");
-    final boolean fp3 = args.containsKey("fp3");
-    final boolean fp4 = args.containsKey("fp4");
-    boolean useSieve = args.containsKey("sieve");
-    final String sieveAlgo = args.get("sieve");
-    if (sieveAlgo == null) useSieve = false;
+  @Command(
+    name = "check",
+    description = "checks grid"
+  )
+  int check(
+    @Parameters(
+      index = "0",
+      arity = "0..1",
+      paramLabel = "GRID",
+      description = "Sudoku grid to check stats of."
+    )
+    String grid,
 
-    if (args.containsKey("grid")) {
-      lines.add(args.get("grid"));
+    @Option(names = "--json", defaultValue = "true")
+    boolean json,
+
+    @Option(names = "--count")
+    boolean count,
+
+    @Option(names = "--all")
+    boolean all,
+
+    @Option(
+      names = "--fp",
+      description = "Fingerprint modes to generate, comma-separated."
+    )
+    String fp,
+
+    @Option(
+      names = "--sieve",
+      description = "Fingerprint mode used for seeding sieves."
+    )
+    String sieve
+  ) {
+    // Split fingerprint arg into a list.
+    List<String> fps = new ArrayList<>();
+    if (fp != null) {
+      fps.addAll(Arrays.asList(fp.split(",")));
+      fps.forEach(Main::validateAlgoStr);
+    }
+    boolean fp_dc2 = fps.contains("dc2");
+    boolean fp_dc3 = fps.contains("dc3");
+    boolean fp_dc4 = fps.contains("dc4");
+    boolean fp_fp2 = fps.contains("fp2");
+    boolean fp_fp3 = fps.contains("fp3");
+    boolean fp_fp4 = fps.contains("fp4");
+
+    // Validate sieve seeding method if given.
+    boolean useSieve = (sieve != null);
+    if (useSieve) {
+      validateAlgoStr(sieve);
     }
 
-    if (lines.isEmpty()) {
-      System.err.println("ERROR: No grid(s) given.");
-      System.exit(1);
+    // Either 'grid' needs to be present, or lines need to be fed in through stdin.
+    // If neither are given, throw usage error.
+    if (grid != null) {
+      linesIn.addFirst(grid);
+    }
+    if (linesIn.isEmpty()) {
+      throw new CommandLine.ParameterException(
+        spec.commandLine(),
+        "ERROR: No grids specified."
+      );
     }
 
-    String[] flagStrs = new String[]{
-      "❌ no solutions",
-      "✅ valid",
-      "🔸 many solutions",
-    };
+    GsonBuilder gsonBuilder = new GsonBuilder();
+    gsonBuilder.setFormattingStyle(FormattingStyle.PRETTY);
+    Gson gson = gsonBuilder.create();
+    try (
+      JsonWriter writer = gson.newJsonWriter(new PrintWriter(System.out));
+      ThreadPoolExecutor pool = new ThreadPoolExecutor(
+        threads, threads,
+        1L, TimeUnit.SECONDS,
+        new LinkedBlockingQueue<>()
+      )
+    ) {
+      pool.prestartAllCoreThreads();
+      if (linesIn.size() > 1) writer.beginArray();
 
-    for (String gridStr : lines) {
-      Map<String,Object> result = new HashMap<>();
-      Sudoku grid = null;
+      List<Future<Map<String,Object>>> resultFtrs = new ArrayList<>();
 
-      if (Sudoku.isValidStr(gridStr)) {
-        grid = new Sudoku(gridStr);
-        result.put("grid", grid.toString());
-        result.put("isValid", grid.isValid());
-        result.put("isSolved", grid.isSolved());
-        result.put("numClues", grid.numClues());
-        int flag = grid.solutionsFlag();
-        result.put("solutionsFlag", flag);
-        List<String> solutionStrs = new ArrayList<>();
-        long solutionCount = 0L;
-        if (flag == 1 || all) {
-          solutionStrs = grid.getAllSolutions().stream().map(s -> s.toString()).toList();
-          result.put("solutions", solutionStrs);
-          solutionCount = solutionStrs.size();
-        } else if (count) {
-          solutionCount = grid.countSolutionsAsync(threads);
-        }
-        if (count) {
-          result.put("solutionCount", solutionCount);
-        }
-        if (flag == 1) {
-          Sudoku solution = new Sudoku(solutionStrs.getFirst());
-          if (dc2) result.put("fingerprint_dc2", solution.dc2());
-          if (dc3) result.put("fingerprint_dc3", solution.dc3());
-          if (dc4) result.put("fingerprint_dc4", solution.dc4());
-          if (fp2) result.put("fingerprint_fp2", solution.fp2());
-          if (fp3) result.put("fingerprint_fp3", solution.fp3());
-          if (fp4) result.put("fingerprint_fp4", solution.fp4());
-          if (useSieve) {
-            SudokuSieve sieve = new SudokuSieve(solution);
-            List<SudokuMask> seedMasks = new ArrayList<>();
-            switch (sieveAlgo) {
-              case "dc2":
-                seedMasks.addAll(sieve.digitCombos(2));
-                break;
-              case "dc3":
-                seedMasks.addAll(sieve.digitCombos(3));
-                break;
-              case "dc4":
-                seedMasks.addAll(sieve.digitCombos(4));
-                break;
-              case "fp2":
-                seedMasks.addAll(sieve.fullPrintCombos(2));
-                break;
-              case "fp3":
-                seedMasks.addAll(sieve.fullPrintCombos(3));
-                break;
-              case "fp4":
-                seedMasks.addAll(sieve.fullPrintCombos(4));
-                break;
-              default:
-                throw new RuntimeException(
-                  String.format("unrecognized sieve seeding algo %s", sieveAlgo)
-                );
+      linesIn.forEach(gridStr -> {
+        resultFtrs.add(pool.submit(() -> {
+          Map<String,Object> result = new HashMap<>();
+
+          if (Sudoku.isValidStr(gridStr)) {
+            Sudoku _grid = new Sudoku(gridStr);
+            result.put("grid", _grid.toString());
+            result.put("isValid", _grid.isValid());
+            result.put("isSolved", _grid.isSolved());
+            result.put("numClues", _grid.numClues());
+            int flag = _grid.solutionsFlag();
+            result.put("solutionsFlag", flag);
+            List<String> solutionStrs = new ArrayList<>();
+            long solutionCount = 0L;
+            if (flag == 1 || all) {
+              solutionStrs = _grid.getAllSolutions().stream().map(s -> s.toString()).toList();
+              result.put("solutions", solutionStrs);
+              solutionCount = solutionStrs.size();
+            } else if (count) {
+              solutionCount = _grid.countSolutionsAsync(threads);
             }
-            List<Runnable> seedWork = new ArrayList<>();
-            seedMasks.forEach(mask -> {
-              seedWork.add(() -> {
-                sieve.searchForUAs(mask);
-              });
-            });
-            vPrintf("Seeding sieve... ");
-            long start = timeMs();
-            runBatchAndBlock(seedWork, threads);
-            long end = timeMs();
-            vPrintf("Done (%d ms).\n", (end - start));
-            result.put("sieve", sieve.items(new ArrayList<>()));
+            if (count) {
+              result.put("solutionCount", solutionCount);
+            }
+            if (flag == 1) {
+              Sudoku solution = new Sudoku(solutionStrs.getFirst());
+              if (fp_dc2) result.put("fingerprint_dc2", solution.dc2());
+              if (fp_dc3) result.put("fingerprint_dc3", solution.dc3());
+              if (fp_dc4) result.put("fingerprint_dc4", solution.dc4());
+              if (fp_fp2) result.put("fingerprint_fp2", solution.fp2());
+              if (fp_fp3) result.put("fingerprint_fp3", solution.fp3());
+              if (fp_fp4) result.put("fingerprint_fp4", solution.fp4());
+              if (useSieve) {
+                SudokuSieve _sieve = new SudokuSieve(solution);
+                List<SudokuMask> seedMasks = new ArrayList<>();
+                switch (sieve) {
+                  case "dc2": seedMasks.addAll(_sieve.digitCombos(2)); break;
+                  case "dc3": seedMasks.addAll(_sieve.digitCombos(3)); break;
+                  case "dc4": seedMasks.addAll(_sieve.digitCombos(4)); break;
+                  case "fp2": seedMasks.addAll(_sieve.fullPrintCombos(2)); break;
+                  case "fp3": seedMasks.addAll(_sieve.fullPrintCombos(3)); break;
+                  case "fp4": seedMasks.addAll(_sieve.fullPrintCombos(4)); break;
+                  default:
+                    // Should never occur because of validation step.
+                    throw new RuntimeException(
+                      String.format("unrecognized sieve seeding algo %s", sieve)
+                    );
+                }
+                List<Runnable> seedWork = new ArrayList<>();
+                seedMasks.forEach(mask -> {
+                  seedWork.add(() -> _sieve.searchForUAs(mask));
+                });
+                if (verbose) printf("Seeding sieve... ");
+                long start = timeMs();
+                runBatchAndBlock(seedWork, threads);
+                long end = timeMs();
+                if (verbose) printf("Done (%d ms).\n", (end - start));
+
+                result.put(
+                  "sieve",
+                  _sieve.items(new ArrayList<>()).stream().map(item -> item.toBigInt().toString()).toList()
+                );
+              }
+            } else if (fp_dc2 || fp_dc3 || fp_dc4 || fp_fp2 || fp_fp3 || fp_fp4) {
+              printf("WARNING: One of more fingerprint args were specified but grid has multiple solutions.\n");
+            }
+          } else {
+            result.put(
+              "grid",
+              (gridStr.length() > SPACES) ?
+                gridStr.substring(0, SPACES) + "...(etc)" :
+                gridStr
+            );
+            result.put("error", "malformed");
           }
-        } else if (dc2 || dc3 || dc4 || fp2 || fp3 || fp4) {
-          printf("WARNING: One of more fingerprint args were specified but grid has multiple solutions.\n");
+
+          return result;
+        }));
+      });
+
+      pool.shutdown();
+
+      for (Future<Map<String,Object>> resultFtr : resultFtrs) {
+        try {
+          gson.toJson(resultFtr.get(), Map.class, writer);
+        } catch (JsonIOException | InterruptedException | ExecutionException e) {
+          e.printStackTrace();
         }
-      } else {
-        if (gridStr.length() > SPACES) {
-          gridStr = gridStr.substring(0, SPACES) + "...(etc)";
-        }
-        result.put("grid", gridStr);
-        result.put("error", "malformed");
       }
 
-      GsonBuilder gsonBuilder = new GsonBuilder();
-      gsonBuilder.setFormattingStyle(FormattingStyle.PRETTY);
-      Gson gson = gsonBuilder.create();
-      println(gson.toJson(result));
+      if (linesIn.size() > 1) writer.endArray();
+
+    } catch (IOException e) {
+      e.printStackTrace();
+      throw new CommandLine.ExecutionException(
+        spec.commandLine(),
+        "ERROR: An Exception occurred while processing command: check"
+      );
     }
+
+    return CommandLine.ExitCode.OK;
   }
 
-  private static void solve() {
-    if (args.containsKey("grid")) {
-      lines.add(args.get("grid"));
+  @Command(
+    name = "solve",
+    description = "Solves the given sudoku grid."
+  )
+  int solve(
+    @Parameters(
+      index = "0",
+      arity = "0..1",
+      paramLabel = "GRID",
+      description = "Sudoku grid to solve."
+    )
+    String grid,
+
+    @Option(names = "--json")
+    boolean json,
+
+    @Option(
+      names = "--amount",
+      defaultValue = "1",
+      description = "Include up to {amount} solutions."
+    )
+    int amount,
+
+    @Option(
+      names = "--all",
+      description = "Include all solutions (overrides amount if set)."
+    )
+    boolean all
+  ) {
+    // Either 'grid' needs to be present, or lines need to be fed in through stdin.
+    // If neither are given, throw usage error.
+    if (grid != null) linesIn.addFirst(grid);
+
+    if (linesIn.isEmpty()) {
+      throw new CommandLine.ParameterException(
+        spec.commandLine(),
+        "ERROR: No grids specified."
+      );
     }
 
-    if (lines.isEmpty()) {
-      System.err.println("ERROR solve: No grid(s) given.");
-      System.exit(1);
-    }
+    GsonBuilder gsonBuilder = new GsonBuilder();
+    gsonBuilder.setFormattingStyle(FormattingStyle.PRETTY);
+    Gson gson = gsonBuilder.create();
 
-    final int threads = args.threads();
+    try (
+      JsonWriter writer = json ? gson.newJsonWriter(new PrintWriter(System.out)) : null
+    ) {
+      if (json && linesIn.size() > 1) writer.beginArray();
 
-    // Some of these options are not compatible together.
-    // Precendence:
-    // count -> all -> amount (default 1)
-    boolean countSolutions = args.containsKey("count");
-    boolean allSolutions = args.containsKey("all");
-    final int amount = args.amountOrDefault(1);
+      for (String gridStr : linesIn) {
+        if (json) writer.beginObject();
 
-    // If finding first solution (not all solutions, not counting, not up to certain amount)
-    // then use one thread per solution search with this helper method.
-    if (!allSolutions && !countSolutions && amount == 1) {
-      long start = System.currentTimeMillis();
-      batchFindFirstSolutions(lines, threads, args.isVerbose());
-      long end = System.currentTimeMillis();
-      vPrintf("Found solutions for %d puzzles in %d ms.\n", lines.size(), end-start);
-      return;
-    }
+        if (!Sudoku.isValidStr(gridStr)) {
+          if (json) {
+            writer.name("grid").value(
+              (gridStr.length() > SPACES) ?
+                gridStr.substring(0, SPACES) + "...(etc)" :
+                gridStr
+            );
+            writer.name("error").value("malformed grid string");
+            writer.endObject();
+          } else {
+            printf(
+              "ERROR: Malformed sudoku string: %s",
+              (gridStr.length() > SPACES) ?
+                gridStr.substring(0, SPACES) + "...(etc)" :
+                gridStr
+            );
+          }
+          continue;
+        }
 
-    for (String gridStr : lines) {
-      Sudoku grid = null;
-      try {
-        grid = new Sudoku(gridStr);
-      } catch (Exception ex) {
-        System.err.println("ERROR: Specified grid is malformed.");
-        System.exit(1);
-      }
-
-      if (countSolutions) {
-        long count = grid.countSolutionsAsync(threads);
-        if (args.isVerbose()) {
-          printf("%s -> %d solutions\n", grid.toString(), count);
+        Sudoku _grid = new Sudoku(gridStr);
+        if (json) {
+          writer.name("grid").value(_grid.toString());
+          writer.name("solutions");
+          writer.beginArray();
+        }
+        if (all) {
+          for (Sudoku solution : _grid.solutions()) {
+            if (json) {
+              writer.value(solution.toString());
+            } else {
+              println(solution.toString());
+            }
+          }
         } else {
-          println(count);
+          int count = 0;
+          for (Sudoku solution : _grid.solutions()) {
+            count++;
+            if (json) {
+              writer.value(solution.toString());
+            } else {
+              println(solution.toString());
+            }
+            if (count >= amount) break;
+          }
         }
-      } else if (allSolutions) {
-        grid.searchForSolutionsAsync(solution -> println(solution.toString()), threads);
-      } else {
-        int solutionCount = 0;
-        for (Sudoku solution : grid.solutions()) {
-          println(solution.toString());
-          if (++solutionCount < amount) break;
+
+        if (json) {
+          writer.endArray();
+          writer.endObject();
         }
       }
+
+      if (json && linesIn.size() > 1) writer.endArray();
+
+    } catch (IOException e) {
+      e.printStackTrace();
+      throw new CommandLine.ExecutionException(
+        spec.commandLine(),
+        "ERROR: An Exception occurred while processing command: solve"
+      );
     }
+
+    return CommandLine.ExitCode.OK;
   }
 
   private static void batchFindFirstSolutions(List<String> gridStrs, int threads, boolean isVerbose) {
@@ -2077,6 +2213,19 @@ public class Main {
     if (!new Sudoku(value).isSolved()) {
       throw new CommandLine.ParameterException(spec.commandLine(),
         String.format("ERROR: Sudoku solution given is invalid or not solved: %s", value)
+      );
+    }
+  }
+
+  /**
+   * Checks if the given fingerprint algorithm string is valid.
+   * @param value fingerprint algorithm string
+   * @throws ParameterException if the algorithm string is invalid.
+   */
+  private static void validateAlgoStr(String value) {
+    if (!FP_ALGOS.contains(value)) {
+      throw new CommandLine.ParameterException(spec.commandLine(),
+        String.format("ERROR: Unsupported fingerprint algorithm: %s", value)
       );
     }
   }
