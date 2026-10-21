@@ -249,10 +249,6 @@ public class Main {
   }
 
   private static final Map<String, Runnable> COMMANDS = new HashMap<>() {{
-    put("scramble", Main::scramble);
-    put("sieve", Main::createSieve);
-    put("fingerprint", Main::fingerprint);
-    put("fp", Main::fingerprint);
     put("sieveSearch", Main::sieveSearch);
     put("minSearch", Main::minSearch);
 
@@ -911,245 +907,46 @@ public class Main {
     return CommandLine.ExitCode.OK;
   }
 
-  private static void batchFindFirstSolutions(List<String> gridStrs, int threads, boolean isVerbose) {
-    ThreadPoolExecutor pool = new ThreadPoolExecutor(
-      threads, threads,
-      1L, TimeUnit.SECONDS,
-      new LinkedBlockingQueue<>()
-    );
-    pool.prestartAllCoreThreads();
-    List<Future<String>> solutionFtrs = new ArrayList<>(lines.size());
+  @Command(
+    name = "scramble",
+    aliases = {"shuffle"},
+    description = "Scrambles sudoku grids by random transforms and digit-swapping."
+  )
+  int scramble(
+    @Parameters(
+      index = "0",
+      arity = "0..1",
+      paramLabel = "GRID",
+      description = "Sudoku grid to scramble."
+    )
+    String grid
+  ) {
+    // Either 'grid' needs to be present, or lines need to be fed in through stdin.
+    // If neither are given, throw usage error.
+    if (grid != null) linesIn.addFirst(grid);
 
-    for (String gridStr : gridStrs) {
-      try {
-        Sudoku grid = new Sudoku(gridStr);
-        solutionFtrs.add(pool.submit(() -> {
-          Sudoku solution = grid.solution();
-          return solution == null ? "No solution" : solution.toString();
-        }));
-      } catch (Exception ex) {
-        System.err.println("ERROR solve: Specified grid is malformed.");
-        System.exit(1);
+    if (linesIn.isEmpty()) {
+      throw new CommandLine.ParameterException(
+        spec.commandLine(),
+        "ERROR: No grids specified."
+      );
+    }
+
+    for (String gridStr : linesIn) {
+      Sudoku _grid = null;
+      if (!Sudoku.isValidStr(gridStr)) {
+        printf(
+          "ERROR: Malformed sudoku string: %s",
+          (gridStr.length() > SPACES) ?
+            gridStr.substring(0, SPACES) + "...(etc)" :
+            gridStr
+        );
       }
+      _grid = new Sudoku(gridStr);
+      println(_grid.scramble().toString());
     }
 
-    pool.shutdown();
-    // Print solutions (in original order).
-    for (int i = 0; i < solutionFtrs.size(); i++) {
-      try {
-        if (isVerbose) {
-          printf("%s -> %s\n", gridStrs.get(i), solutionFtrs.get(i).get());
-        } else {
-          println(solutionFtrs.get(i).get());
-        }
-      } catch (InterruptedException | ExecutionException e) {
-        e.printStackTrace();
-      }
-    }
-    // Close up
-    try {
-      pool.awaitTermination(1L, TimeUnit.DAYS);
-    } catch (InterruptedException e) {
-      e.printStackTrace();
-    } finally {
-      pool.close();
-    }
-  }
-
-  private static void scramble() {
-    if (args.containsKey("grid")) {
-      lines.add(args.get("grid"));
-    }
-
-    if (lines.isEmpty()) {
-      System.err.println("ERROR scramble: No grid(s) given.");
-      System.exit(1);
-    }
-
-    for (String gridStr : lines) {
-      Sudoku grid = null;
-      try {
-        grid = new Sudoku(gridStr);
-      } catch (Exception ex) {
-        System.err.println("ERROR scramble: Specified grid is malformed.");
-        System.exit(1);
-      }
-
-      println(grid.scramble().toString());
-    }
-  }
-
-  /**
-   * level [2,4] (default: 2)
-   * grid? [str] (default: randomly generated)
-   * threads? [1, #cores - 2] (default: 1 if omitted; MAX if only "--threads" given)
-   */
-  private static void createSieve() {
-    final int threads = args.threads();
-    final String algo = args.algoOrDefault("dc2");
-
-    final boolean showBigInt = args.containsKey("bigint");
-
-    if (args.containsKey("grid")) {
-      lines.add(args.get("grid"));
-    }
-
-    if (lines.isEmpty()) {
-      System.err.println("ERROR: No grid(s) given.");
-      System.exit(1);
-    }
-
-    vPrintf("Creating sieves for given grids, with algo %s, and %d threads.", algo, threads);
-
-    for (String gridStr : lines) {
-      Sudoku grid = null;
-      try {
-        grid = new Sudoku(gridStr);
-      } catch (Exception ex) {
-        System.err.println("ERROR: Specified grid is malformed.");
-        System.exit(1);
-      }
-
-      long startTime = System.currentTimeMillis();
-      SudokuSieve sieve = new SudokuSieve(grid);
-      List<SudokuMask> seedingMasks;
-      switch (algo) {
-        case "dc2": seedingMasks = sieve.digitCombos(2); break;
-        case "dc3": seedingMasks = sieve.digitCombos(3); break;
-        case "dc4": seedingMasks = sieve.digitCombos(4); break;
-        case "fp2": seedingMasks = sieve.fullPrintCombos(2); break;
-        case "fp3": seedingMasks = sieve.fullPrintCombos(3); break;
-        case "fp4": seedingMasks = sieve.fullPrintCombos(4); break;
-        default: throw new RuntimeException("Something went wrong seeding sieve.");
-      }
-      List<Runnable> workList = new ArrayList<>();
-      seedingMasks.forEach(mask -> {
-        workList.add(() -> { sieve.searchForUAs(mask); });
-      });
-      runBatchAndBlock(workList, threads);
-      long endTime = System.currentTimeMillis();
-      println(grid.toString());
-      if (showBigInt) {
-        for (SudokuMask item : sieve.items(new ArrayList<>())) {
-          String decimalStr = (new BigInteger(item.toString(), 2)).toString();
-          System.out.printf("%30s %s\n", decimalStr, grid.filterStr(item));
-        }
-      } else {
-        println(sieve.toString());
-      }
-      printf("Added %d items to sieve (%d ms).\n", sieve.size(), endTime - startTime);
-    }
-  }
-
-  private static void fingerprint() {
-    final int threads = args.threads();
-    final String algo = args.algoOrDefault("fp3");
-
-    if (args.containsKey("grid")) {
-      lines.add(args.get("grid"));
-    }
-
-    if (lines.isEmpty()) {
-      System.err.println("ERROR fingerprint: No grid(s) given.");
-      System.exit(1);
-    }
-
-    if (threads > 1) vPrintf("Using %d threads.\n", threads);
-
-    if (lines.size() >= threads && threads > 1) {
-      batchFingerprinting();
-      return;
-    }
-
-    for (String gridStr : lines) {
-      Sudoku grid = null;
-      try {
-        grid = new Sudoku(gridStr);
-      } catch (Exception ex) {
-        System.err.println("ERROR fingerprint: Specified grid is malformed.");
-        System.err.println("\"" + gridStr + "\"");
-        System.exit(1);
-      }
-
-      long start = timeMs();
-      String fp;
-      switch (algo) {
-        case "dc2": fp = grid.dc(2, threads); break;
-        case "dc3": fp = grid.dc(3, threads); break;
-        case "dc4": fp = grid.dc(4, threads); break;
-        case "fp2": fp = grid.fp(2, threads); break;
-        case "fp3": fp = grid.fp(3, threads); break;
-        case "fp4": fp = grid.fp(4, threads); break;
-        default: throw new RuntimeException("Something went wrong creating fingerprint.");
-      }
-      long sysTime = timeMs() - start;
-      if (args.isVerbose()) {
-        System.out.printf("%s\n%s: %s (%d ms)\n", grid.toString(), algo, fp, sysTime);
-      } else {
-        println(fp);
-      }
-    }
-  }
-
-  private static void batchFingerprinting() {
-    final int threads = args.threads();
-    final String algo = args.algoOrDefault("fp3");
-
-    ThreadPoolExecutor pool = new ThreadPoolExecutor(
-      threads, threads,
-      1L, TimeUnit.SECONDS,
-      new LinkedBlockingQueue<>()
-    );
-    pool.prestartAllCoreThreads();
-    List<Future<String>> solutionFtrs = new ArrayList<>(lines.size());
-
-    for (int i = 0; i < lines.size(); i++) {
-      String gridStr = lines.get(i);
-      final int _i = i;
-      try {
-        Sudoku grid = new Sudoku(gridStr);
-        solutionFtrs.add(pool.submit(() -> {
-          long start = timeMs();
-          String fp;
-          switch (algo) {
-            case "dc2": fp = grid.dc2(); break;
-            case "dc3": fp = grid.dc3(); break;
-            case "dc4": fp = grid.dc4(); break;
-            case "fp2": fp = grid.fp2(); break;
-            case "fp3": fp = grid.fp3(); break;
-            case "fp4": fp = grid.fp4(); break;
-            default: throw new RuntimeException("Something went wrong creating fingerprint.");
-          }
-          long sysTime = timeMs() - start;
-          if (args.isVerbose()) {
-            return String.format("[%d] %s, %s: %s // (%d ms)", _i, grid.toString(), algo, fp, sysTime);
-          } else {
-            return fp;
-          }
-        }));
-      } catch (Exception ex) {
-        System.err.println("ERROR fingerprint: Specified grid is malformed.");
-        System.exit(1);
-      }
-    }
-
-    pool.shutdown();
-    // Print solutions (in original order).
-    for (int i = 0; i < solutionFtrs.size(); i++) {
-      try {
-        println(solutionFtrs.get(i).get());
-      } catch (InterruptedException | ExecutionException e) {
-        e.printStackTrace();
-      }
-    }
-    // Close up
-    try {
-      pool.awaitTermination(1L, TimeUnit.DAYS);
-    } catch (InterruptedException e) {
-      e.printStackTrace();
-    } finally {
-      pool.close();
-    }
+    return CommandLine.ExitCode.OK;
   }
 
   /**
