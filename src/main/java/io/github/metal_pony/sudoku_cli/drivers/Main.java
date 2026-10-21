@@ -349,7 +349,6 @@ public class Main {
           if (palindrome) {
             if (verbose) println("palindrome generation...");
             Sudoku _solution = solutionGiven ? new Sudoku(solution) : null;
-            // TODO requires io.github.metal-pony:sudoku:0.1.1-SNAPSHOT
             puzzle = Sudoku.generatePalindromePuzzle(clues, _solution, null);
           } else if (mask != null) {
             SudokuMask m = new SudokuMask(mask);
