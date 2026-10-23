@@ -474,13 +474,25 @@ public class Main {
     )
     String solution,
 
-    @Option(names = "--clues", defaultValue = "24", converter = ClueCountConverter.class)
+    @Option(
+      names = "--clues",
+      paramLabel = "N",
+      defaultValue = "24",
+      converter = ClueCountConverter.class,
+      description = "Number of clues on generated puzzles."
+    )
     int clues,
 
-    @Option(names = "--r")
-    boolean rValues,
+    // @Option(
+    //   names = "--r",
+    //   description = ""
+    // )
+    // boolean rValues,
 
-    @Option(names = "--pretty")
+    @Option(
+      names = "--pretty",
+      description = "Format output to use multiple lines."
+    )
     boolean prettyPrint
   ) {
     Sudoku _solution = null;
@@ -606,23 +618,35 @@ public class Main {
     )
     String grid,
 
-    @Option(names = "--json", defaultValue = "true")
+    @Option(
+      names = "--json",
+      defaultValue = "true",
+      description = "(Default: TRUE). Output information in JSON format."
+    )
     boolean json,
 
-    @Option(names = "--count")
+    @Option(
+      names = "--count",
+      description = "Include a count of solutions."
+    )
     boolean count,
 
-    @Option(names = "--all")
+    @Option(
+      names = "--all",
+      description = "Include a list of all solutions."
+    )
     boolean all,
 
     @Option(
       names = "--fp",
-      description = "Fingerprint modes to generate, comma-separated."
+      paramLabel = "MODES",
+      description = "Fingerprint to generate by mode, comma-separated. Example: --fp dc2,dc3,fp4"
     )
     String fp,
 
     @Option(
       names = "--sieve",
+      paramLabel = "MODE",
       description = "Fingerprint mode used for seeding sieves."
     )
     String sieve
