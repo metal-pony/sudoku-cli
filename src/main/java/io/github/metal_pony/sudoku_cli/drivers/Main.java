@@ -128,7 +128,11 @@ public class Main {
   }
 
   public static class SourceOptions {
-    @Option(names = {"--mask", "-m"}, paramLabel = "MASK")
+    @Option(
+      names = {"--mask", "-m"},
+      paramLabel = "MASK",
+      description = "Use specific cells."
+    )
     String mask;
 
     @ArgGroup(exclusive = false, multiplicity = "0..1")
@@ -139,12 +143,17 @@ public class Main {
    * Subset of puzzle generation options that are not mutually exclusive.
    */
   public static class PuzzleOptions {
-    @Option(names = "--clues", defaultValue = "27", converter = ClueCountConverter.class)
+    @Option(
+      names = {"--clues","-c"},
+      defaultValue = "27",
+      converter = ClueCountConverter.class,
+      description = "Number of clues on generated puzzles."
+    )
     int clues = 27;
 
     String solution;
     @Option(
-      names = {"--solution", "--grid"},
+      names = {"--solution", "-s"},
       paramLabel = "SOLUTION",
       description = "Use a specific solution."
     )
@@ -155,7 +164,10 @@ public class Main {
       solution = value;
     }
 
-    @Option(names = {"--palindrome", "--pali"})
+    @Option(
+      names = {"--palindrome", "-p"},
+      description = "Generate with palindrome symmetry."
+    )
     boolean palindrome;
   }
 
@@ -182,7 +194,7 @@ public class Main {
 
   @Command(
     name = "generateSolutions",
-    aliases = {"solution", "solutions", "generateConfigs", "config", "configs"},
+    aliases = {"solution", "solutions"},
     description = "Generate Sudoku solution grids."
   )
   int generateSolutions(
@@ -193,10 +205,7 @@ public class Main {
       paramLabel = "N",
       description = "Number of solutions to generate"
     )
-    int amount,
-
-    @Option(names = "--normalize")
-    boolean normalize
+    int amount
   ) {
     if (amount < 1) {
       throw new CommandLine.ParameterException(
@@ -221,7 +230,6 @@ public class Main {
         StringBuilder strb = new StringBuilder();
         for (int n = 0; n < amountToGen; n++) {
           config.genConfig();
-          if (normalize) config.normalize();
           strb.append(config.toString());
           strb.append(lineSeparator);
           bufSize++;
@@ -248,23 +256,6 @@ public class Main {
     return CommandLine.ExitCode.OK;
   }
 
-  private static final Map<String, Runnable> COMMANDS = new HashMap<>() {{
-    put("sieveSearch", Main::sieveSearch);
-    put("minSearch", Main::minSearch);
-
-    // TODO https://github.com/metal-pony/sudoku-cli/issues/7
-    // put("transform", Main::transform);
-
-    // --puzzle %s --threads %d --timeout %d
-    // For testing / experimentation
-    put("benchy", Main::benchy);
-    put("generateBands", GenerateInitialBands::generateInitialBands);
-    put("adhoc", Main::adhoc);
-    put("adhoc2", Main::adhoc2);
-    put("wip1", Main::wip_1); // broken until Sudoku.searchForPuzzlesAsync is fixed
-    put("wip3", Main::wip3);
-  }};
-
   /**
    * Generates Sudoku puzzles.
    * Can read solution grids from stdin, one per line. When supplied, generates
@@ -290,18 +281,18 @@ public class Main {
       index = "0",
       arity = "0..1",
       defaultValue = "1",
-      paramLabel = "N",
-      description = "Number of puzzles to generate"
+      paramLabel = "AMOUNT",
+      description = "Number of puzzles to generate."
     )
     int amount,
 
     @Mixin
     PuzzleInputOptions inputOptions,
 
-    @Option(names = "--normalize")
-    boolean normalize,
-
-    @Option(names = "--pretty")
+    @Option(
+      names = "--pretty",
+      description = "Format output to use multiple lines."
+    )
     boolean prettyPrint
   ) {
     PuzzleOptions puzzleOptions = inputOptions.source == null
@@ -362,7 +353,6 @@ public class Main {
           } else {
             puzzle = Sudoku.generatePuzzle(clues);
           }
-          if (normalize) puzzle.normalize();
           println(prettyPrint ? puzzle.toMedString() : puzzle.toString());
         } catch (Exception ex) {
           // TODO remove try/catch after debugging
@@ -418,7 +408,6 @@ public class Main {
             } else {
               puzzle = Sudoku.generatePuzzle(_solution, clues, sieve, 0, 60*1000L);
             }
-            if (normalize) puzzle.normalize();
             println(prettyPrint ? puzzle.toMedString() : puzzle.toString());
           } catch (Exception ex) {
             // TODO remove try/catch after debugging
@@ -606,7 +595,7 @@ public class Main {
    */
   @Command(
     name = "check",
-    description = "checks grid"
+    description = "Display information about a specific sudoku."
   )
   int check(
     @Parameters(
